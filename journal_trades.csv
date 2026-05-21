@@ -1,0 +1,6 @@
+date,symbol,timeframe,setup,score,session,resultat
+2026-05-20 09:22:38,BTCUSDT,5m,Sweep + FVG + BOS,78,London,LOSS
+2026-05-20 10:20:00,BTCUSDT,5m,Liquidity Sweep,92,London,WIN
+2026-05-20 13:30:53,BTCUSD,1,LONG,Scalping,Sweep + FVG + BOS,92,London,77361.41,77000,78000,2.5,BULL,True,True,True,WIN
+2026-05-20 13:31:13,BTCUSD,1,LONG,Scalping,Sweep + FVG + BOS,92,London,77322.86,77000,78000,2.5,BULL,True,True,True,WIN
+2026-05-20 13:34:12,BTCUSD,1,LONG,Scalping,Sweep + FVG + BOS,92,London,77340.99000000001,77000,78000,2.5,BULL,True,True,True,WIN
