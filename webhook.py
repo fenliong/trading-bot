@@ -1,4 +1,4 @@
-from flask import Flask, request
+from flask import Flask, request, send_file
 import csv
 from datetime import datetime
 
@@ -65,5 +65,9 @@ def webhook():
     return {
         "message": "Trade enregistré"
     }
+
+@app.route("/download")
+def download_csv():
+    return send_file("journal_trades.csv", as_attachment=True)
 
 app.run(host="0.0.0.0", port=80)
