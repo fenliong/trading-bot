@@ -30,7 +30,7 @@ def webhook():
     "bos": data.get("bos", False),
     "fvg": data.get("fvg", False),
     "sweep": data.get("sweep", False),
-    "resultat": data.get("resultat", "")
+    "resultat": data.get("result") or data.get("resultat") or "OPEN"
 }
 
     with open(fichier, mode="a", newline="") as file:
