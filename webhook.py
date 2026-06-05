@@ -1,10 +1,12 @@
 from flask import Flask, request, send_file
 import csv
+import requests
 from datetime import datetime
 
 app = Flask(__name__)
 
 fichier = "journal_trades.csv"
+GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyVUSrnvHzkFTyuMqZfjEvXbOe2_bkFRsCYbdtfXuR3MZgGJePgh5vF9-eqeHnCeDCq/exec"
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -59,12 +61,25 @@ def webhook():
             writer.writeheader()
 
         writer.writerow(trade)
+        
+        try:
+            response = requests.post(
+                GOOGLE_SCRIPT_URL,
+                json=trade,
+                timeout=3
+            )
+            
+            print("STATUS GOOGLE SHEETS =",response.status_code)
+            print("REPONSE GOOGLE SHEETS =",response.text)
+        
+        except Exception as e:
+            print("ERREUR GOOGLE SHEETS =", e)
 
-    print("Trade reçu :", trade)
+        print("Trade reçu :", trade)
 
-    return {
-        "message": "Trade enregistré"
-    }
+        return {
+            "message": "Trade enregistré"
+        }
 
 @app.route("/download")
 def download_csv():
