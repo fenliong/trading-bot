@@ -30,6 +30,22 @@ def webhook():
     "bos": data.get("bos", False),
     "fvg": data.get("fvg", False),
     "sweep": data.get("sweep", False),
+    "version": data.get("version", ""),
+
+    "dominant_scenario": data.get("dominant_scenario", ""),
+    "scenario_confidence": data.get("scenario_confidence", ""),
+
+    "bull_scenario": data.get("bull_scenario", ""),
+    "bull_confidence": data.get("bull_confidence", ""),
+
+    "bear_scenario": data.get("bear_scenario", ""),
+    "bear_confidence": data.get("bear_confidence", ""),
+
+    "narrative_phase": data.get("narrative_phase", ""),
+    "narrative_score": data.get("narrative_score", ""),
+    "narrative_quality": data.get("narrative_quality", ""),
+    "narrative_text": data.get("narrative_text", ""),
+        
     "resultat": data.get("result") or data.get("resultat") or "OPEN"
 }
 
@@ -52,6 +68,23 @@ def webhook():
     "bos",
     "fvg",
     "sweep",
+
+    "version",
+
+    "dominant_scenario",
+    "scenario_confidence",
+
+    "bull_scenario",
+    "bull_confidence",
+
+    "bear_scenario",
+    "bear_confidence",
+
+    "narrative_phase",
+    "narrative_score",
+    "narrative_quality",
+    "narrative_text",
+    
     "resultat"
 ]
 
