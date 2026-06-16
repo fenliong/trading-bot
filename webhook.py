@@ -99,7 +99,7 @@ def webhook():
             response = requests.post(
                 GOOGLE_SCRIPT_URL,
                 json=trade,
-                timeout=10
+                timeout=2
             )
             
             print("STATUS GOOGLE SHEETS =",response.status_code)
