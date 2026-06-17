@@ -31,6 +31,7 @@ def webhook():
     "fvg": data.get("fvg", False),
     "sweep": data.get("sweep", False),
     "version": data.get("version", ""),
+    "fingerprint": data.get("fingerprint", ""),
 
     "dominant_scenario": data.get("dominant_scenario", ""),
     "scenario_confidence": data.get("scenario_confidence", ""),
@@ -70,6 +71,7 @@ def webhook():
     "sweep",
 
     "version",
+    "fingerprint",
 
     "dominant_scenario",
     "scenario_confidence",
