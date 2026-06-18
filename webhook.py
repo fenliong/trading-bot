@@ -35,6 +35,7 @@ def webhook():
     "cis": data.get("cis", ""),
     "cis_score": data.get("cis_score", ""),
     "context_class": data.get("context_class", ""),
+    "learning_tag": data.get("learning_tag", ""),
     
     "dominant_scenario": data.get("dominant_scenario", ""),
     "scenario_confidence": data.get("scenario_confidence", ""),
@@ -78,6 +79,7 @@ def webhook():
     "cis",
     "cis_score",
     "context_class",
+    "learning_tag",
     "dominant_scenario",
     "scenario_confidence",
 
