@@ -51,7 +51,9 @@ def webhook():
     "setup_id": data.get("setup_id", ""),
     "setup_family": data.get("setup_family", ""), 
     "learning_bucket": data.get("learning_bucket", ""),
-    "learning_bucket_score": data.get("learning_bucket_score", ""),    
+    "learning_bucket_score": data.get("learning_bucket_score", ""),  
+    "historical_context_group": data.get("historical_context_group", ""),
+    "historical_context_quality": data.get("historical_context_quality", ""),    
     "dominant_scenario": data.get("dominant_scenario", ""),
     "scenario_confidence": data.get("scenario_confidence", ""),
 
@@ -111,7 +113,9 @@ def webhook():
     "setup_id",
     "setup_family",   
     "learning_bucket",
-    "learning_bucket_score",   
+    "learning_bucket_score", 
+    "historical_context_group",
+    "historical_context_quality",    
     "scenario_confidence",
 
     "bull_scenario",
