@@ -37,7 +37,9 @@ def webhook():
     "context_class": data.get("context_class", ""),
     "learning_tag": data.get("learning_tag", ""),
     "institutional_ai_label": data.get("institutional_ai_label", ""),
-    "institutional_ai_score": data.get("institutional_ai_score", ""),   
+    "institutional_ai_score": data.get("institutional_ai_score", ""),
+    "institutional_confidence_label": data.get("institutional_confidence_label", ""),
+    "institutional_confidence_score": data.get("institutional_confidence_score", ""),    
     
     "dominant_scenario": data.get("dominant_scenario", ""),
     "scenario_confidence": data.get("scenario_confidence", ""),
@@ -83,8 +85,9 @@ def webhook():
     "context_class",
     "learning_tag",
     "institutional_ai_label",
-    "institutional_ai_score",    
-    "dominant_scenario",
+    "institutional_ai_score",   
+    "institutional_confidence_label",
+    "institutional_confidence_score",    "dominant_scenario",
     "scenario_confidence",
 
     "bull_scenario",
