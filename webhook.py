@@ -53,7 +53,9 @@ def webhook():
     "learning_bucket": data.get("learning_bucket", ""),
     "learning_bucket_score": data.get("learning_bucket_score", ""),  
     "historical_context_group": data.get("historical_context_group", ""),
-    "historical_context_quality": data.get("historical_context_quality", ""),    
+    "historical_context_quality": data.get("historical_context_quality", ""),   
+    "edge_stability": data.get("edge_stability", ""),
+    "edge_stability_score": data.get("edge_stability_score", ""),    
     "dominant_scenario": data.get("dominant_scenario", ""),
     "scenario_confidence": data.get("scenario_confidence", ""),
 
@@ -115,7 +117,9 @@ def webhook():
     "learning_bucket",
     "learning_bucket_score", 
     "historical_context_group",
-    "historical_context_quality",    
+    "historical_context_quality", 
+    "edge_stability",
+    "edge_stability_score",    
     "scenario_confidence",
 
     "bull_scenario",
