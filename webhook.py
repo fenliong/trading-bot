@@ -32,7 +32,9 @@ def webhook():
     "sweep": data.get("sweep", False),
     "version": data.get("version", ""),
     "fingerprint": data.get("fingerprint", ""),
-
+    "cis": data.get("cis", ""),
+    "cis_score": data.get("cis_score", ""),
+    
     "dominant_scenario": data.get("dominant_scenario", ""),
     "scenario_confidence": data.get("scenario_confidence", ""),
 
@@ -72,7 +74,8 @@ def webhook():
 
     "version",
     "fingerprint",
-
+    "cis",
+    "cis_score",
     "dominant_scenario",
     "scenario_confidence",
 
