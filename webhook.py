@@ -41,8 +41,8 @@ def webhook():
     "institutional_confidence_label": data.get("institutional_confidence_label", ""),
     "institutional_confidence_score": data.get("institutional_confidence_score", ""),    
     "institutional_rank": data.get("institutional_rank", ""),
-    "institutional_rank_score": data.get("institutional_rank_score", ""),    "dominant_scenario": data.get("dominant_scenario", ""),
-    
+    "institutional_rank_score": data.get("institutional_rank_score", ""),    
+    "dominant_scenario": data.get("dominant_scenario", ""),
     "scenario_confidence": data.get("scenario_confidence", ""),
 
     "bull_scenario": data.get("bull_scenario", ""),
