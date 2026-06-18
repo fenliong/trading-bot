@@ -49,7 +49,9 @@ def webhook():
     "context_scorecard": data.get("context_scorecard", ""),
     "context_scorecard_value": data.get("context_scorecard_value", ""), 
     "setup_id": data.get("setup_id", ""),
-    "setup_family": data.get("setup_family", ""),     
+    "setup_family": data.get("setup_family", ""), 
+    "learning_bucket": data.get("learning_bucket", ""),
+    "learning_bucket_score": data.get("learning_bucket_score", ""),    
     "dominant_scenario": data.get("dominant_scenario", ""),
     "scenario_confidence": data.get("scenario_confidence", ""),
 
@@ -107,7 +109,9 @@ def webhook():
     "context_scorecard",
     "context_scorecard_value", 
     "setup_id",
-    "setup_family",    
+    "setup_family",   
+    "learning_bucket",
+    "learning_bucket_score",   
     "scenario_confidence",
 
     "bull_scenario",
