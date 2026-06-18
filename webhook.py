@@ -43,8 +43,9 @@ def webhook():
     "institutional_rank": data.get("institutional_rank", ""),
     "institutional_rank_score": data.get("institutional_rank_score", ""),   
     "institutional_pattern": data.get("institutional_pattern", ""),
-    "institutional_pattern_quality": data.get("institutional_pattern_quality", ""),    
-    "dominant_scenario": data.get("dominant_scenario", ""),
+    "institutional_pattern_quality": data.get("institutional_pattern_quality", ""), 
+    "institutional_outcome_key": data.get("institutional_outcome_key", ""),
+    "institutional_outcome_group": data.get("institutional_outcome_group", ""),    "dominant_scenario": data.get("dominant_scenario", ""),
     "scenario_confidence": data.get("scenario_confidence", ""),
 
     "bull_scenario": data.get("bull_scenario", ""),
@@ -95,7 +96,9 @@ def webhook():
     "institutional_rank",
     "institutional_rank_score", 
     "institutional_pattern",
-    "institutional_pattern_quality",    
+    "institutional_pattern_quality",  
+    "institutional_outcome_key",
+    "institutional_outcome_group",    
     "scenario_confidence",
 
     "bull_scenario",
