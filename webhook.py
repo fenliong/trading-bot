@@ -34,6 +34,7 @@ def webhook():
     "fingerprint": data.get("fingerprint", ""),
     "cis": data.get("cis", ""),
     "cis_score": data.get("cis_score", ""),
+    "context_class": data.get("context_class", ""),
     
     "dominant_scenario": data.get("dominant_scenario", ""),
     "scenario_confidence": data.get("scenario_confidence", ""),
@@ -76,6 +77,7 @@ def webhook():
     "fingerprint",
     "cis",
     "cis_score",
+    "context_class",
     "dominant_scenario",
     "scenario_confidence",
 
