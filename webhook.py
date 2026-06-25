@@ -56,7 +56,20 @@ def webhook():
     "historical_context_group": data.get("historical_context_group", ""),
     "historical_context_quality": data.get("historical_context_quality", ""),   
     "edge_stability": data.get("edge_stability", ""),
-    "edge_stability_score": data.get("edge_stability_score", ""),    
+    "edge_stability_score": data.get("edge_stability_score", ""), 
+    "v49_memory_score": data.get("v49_memory_score"),
+    "v49_memory_quality": data.get("v49_memory_quality"),
+    "v49_memory_bias": data.get("v49_memory_bias"),
+    "v49_memory_fingerprint": data.get("v49_memory_fingerprint"),
+
+    "v49_liquidity_memory_bias": data.get("v49_liquidity_memory_bias"),
+    "v49_liquidity_memory_score": data.get("v49_liquidity_memory_score"),
+
+    "v49_fvg_bias": data.get("v49_fvg_bias"),
+    "v49_fvg_memory_score": data.get("v49_fvg_memory_score"),
+
+    "v49_htf_level_memory": data.get("v49_htf_level_memory"),
+    "v49_htf_level_score": data.get("v49_htf_level_score"),
     "dominant_scenario": data.get("dominant_scenario", ""),
     "scenario_confidence": data.get("scenario_confidence", ""),
 
