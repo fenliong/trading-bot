@@ -147,6 +147,17 @@ def webhook():
     "narrative_score",
     "narrative_quality",
     "narrative_text",
+
+    "v49_memory_score",
+    "v49_memory_quality",
+    "v49_memory_bias",
+    "v49_memory_fingerprint",
+    "v49_liquidity_memory_bias",
+    "v49_liquidity_memory_score",
+    "v49_fvg_bias",
+    "v49_fvg_memory_score",
+    "v49_htf_level_memory",
+    "v49_htf_level_score",
     
     "resultat"
 ]
