@@ -1,5 +1,6 @@
 from flask import Flask, request, send_file, jsonify
 import csv
+import os
 import requests
 from datetime import datetime
 from threading import Thread
@@ -7,8 +8,10 @@ from threading import Thread
 app = Flask(__name__)
 
 fichier = "journal_trades.csv"
+
 GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyVUSrnvHzkFTyuMqZfjEvXbOe2_bkFRsCYbdtfXuR3MZgGJePgh5vF9-eqeHnCeDCq/exec"
 
+GOOGLE_SCRIPT_SECRET = os.getenv("GOOGLE_SCRIPT_SECRET", "").strip()
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -28,6 +31,11 @@ def webhook():
 
 def process_webhook_background(data):
     try:
+        if not GOOGLE_SCRIPT_SECRET:
+            raise RuntimeError(
+                "GOOGLE_SCRIPT_SECRET manquant dans Railway Variables"
+            )
+        
         trade = {
             "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "symbol": data.get("symbol", ""),
@@ -164,9 +172,13 @@ def process_webhook_background(data):
 
             writer.writerow(trade)
 
+        google_payload = dict(trade)
+
+        google_payload["webhook_secret"] = GOOGLE_SCRIPT_SECRET
+
         response = requests.post(
             GOOGLE_SCRIPT_URL,
-            json=trade,
+            json=google_payload,
             timeout=15
         )
 
