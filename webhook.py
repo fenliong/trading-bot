@@ -37,6 +37,7 @@ def process_webhook_background(data):
             )
         
         trade = {
+            "trade_id": data.get("trade_id", ""),            
             "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "symbol": data.get("symbol", ""),
             "timeframe": data.get("timeframe", ""),
@@ -136,7 +137,7 @@ def process_webhook_background(data):
         }
 
         colonnes = [
-            "date", "symbol", "timeframe", "direction", "action", "mode", "setup",
+            "trade_id", "date", "symbol", "timeframe", "direction", "action", "mode", "setup",
             "score", "session", "entry", "sl", "tp", "rr", "htf_trend", "bos",
             "fvg", "sweep", "version", "fingerprint", "cis", "cis_score",
             "context_class", "learning_tag", "institutional_ai_label",
