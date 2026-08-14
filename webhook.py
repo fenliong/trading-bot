@@ -653,4 +653,8 @@ def download_csv():
     return send_file("journal_trades.csv", as_attachment=True)
 
 
-app.run(host="0.0.0.0", port=80)
+if __name__ == "__main__":
+    app.run(
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", 8080))
+    )
