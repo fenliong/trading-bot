@@ -577,10 +577,36 @@ def send_to_google_with_retry(google_payload, max_attempts=3):
                 flush=True
             )
 
+            # ==================================================
+            # QROS STEP45D.3
+            # CONTROLLED FAULT INJECTION
+            # Test payload only.
+            # Production events remain on normal timeout.
+            # ==================================================
+
+            trade_id = str(
+                google_payload.get("trade_id", "")
+            ).strip()
+
+            is_step45d3_test = (
+                trade_id.startswith("QTR1_STEP45D3_TEST_")
+            )
+
+            if is_step45d3_test and attempt == 1:
+                request_timeout = (10, 0.001)
+
+                print(
+                    "QROS_STEP45D3 FAULT_INJECTION "
+                    "FIRST_ATTEMPT_READ_TIMEOUT=0.001s",
+                    flush=True
+                )
+            else:
+                request_timeout = (10, 90)
+                
             response = requests.post(
                 GOOGLE_SCRIPT_URL,
                 json=google_payload,
-                timeout=(10, 90)
+                timeout=request_timeout
             )
 
             print(
