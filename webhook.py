@@ -13,9 +13,452 @@ GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyVUSrnvHzkFTyuMqZf
 
 GOOGLE_SCRIPT_SECRET = os.getenv("GOOGLE_SCRIPT_SECRET", "").strip()
 
+# ============================================================
+# QROS STEP 45B.1
+# Railway Payload Contract Guard
+# Version: 0.1.0
+# Default mode: SHADOW
+# ============================================================
+
+QROS_PAYLOAD_GUARD_MODE = os.getenv(
+    "QROS_PAYLOAD_GUARD_MODE",
+    "SHADOW"
+).strip().upper()
+
+QROS_SUPPORTED_VERSION = "QROS_V49.0.1"
+
+QROS_ALLOWED_RESULTS = {
+    "OPEN",
+    "WIN",
+    "LOSS",
+    "BE"
+}
+
+QROS_ALLOWED_DIRECTIONS = {
+    "LONG",
+    "SHORT"
+}
+
+QROS_ALLOWED_ACTIONS = {
+    "buy",
+    "sell"
+}
+
+
+def _qros_non_empty_string(value):
+    return (
+        isinstance(value, str)
+        and bool(value.strip())
+    )
+
+
+def _qros_number_like(value):
+    """
+    Accept real numeric values and numeric strings.
+
+    This is intentional because the current Pine V49 contract
+    sends some price fields as JSON strings.
+    """
+
+    if isinstance(value, bool):
+        return False
+
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return False
+
+    return (
+        number == number
+        and number not in (
+            float("inf"),
+            float("-inf")
+        )
+    )
+
+
+def validate_qros_v49_payload(data):
+    """
+    STEP 45B contract validation.
+
+    Validation only.
+    No mutation.
+    No persistence.
+    No Google call.
+
+    Returns:
+        {
+            "valid": bool,
+            "errors": [...],
+            "warnings": [...]
+        }
+    """
+
+    errors = []
+    warnings = []
+
+    # --------------------------------------------------------
+    # 1. ROOT CONTRACT
+    # --------------------------------------------------------
+
+    if not isinstance(data, dict):
+        return {
+            "valid": False,
+            "errors": [
+                "PAYLOAD_NOT_OBJECT"
+            ],
+            "warnings": []
+        }
+
+    # --------------------------------------------------------
+    # 2. REQUIRED IDENTITY
+    # --------------------------------------------------------
+
+    trade_id = data.get("trade_id")
+
+    if not _qros_non_empty_string(trade_id):
+        errors.append(
+            "TRADE_ID_MISSING_OR_EMPTY"
+        )
+
+    elif not trade_id.startswith("QTR1_"):
+        warnings.append(
+            "TRADE_ID_NON_STANDARD_PREFIX"
+        )
+
+    version = data.get("version")
+
+    if version != QROS_SUPPORTED_VERSION:
+        errors.append(
+            "UNSUPPORTED_VERSION"
+        )
+
+    # --------------------------------------------------------
+    # 3. ASSET CONTRACT
+    # --------------------------------------------------------
+
+    symbol = data.get("symbol")
+    asset = data.get("asset")
+
+    if not _qros_non_empty_string(symbol):
+        errors.append(
+            "SYMBOL_MISSING_OR_EMPTY"
+        )
+
+    if asset is not None:
+
+        if not _qros_non_empty_string(asset):
+            errors.append(
+                "ASSET_INVALID"
+            )
+
+        elif (
+            _qros_non_empty_string(symbol)
+            and asset != symbol
+        ):
+            errors.append(
+                "SYMBOL_ASSET_MISMATCH"
+            )
+
+    # --------------------------------------------------------
+    # 4. TIMEFRAME CONTRACT
+    # --------------------------------------------------------
+
+    timeframe = data.get("timeframe")
+    tf = data.get("tf")
+
+    if not _qros_non_empty_string(timeframe):
+        errors.append(
+            "TIMEFRAME_MISSING_OR_EMPTY"
+        )
+
+    if tf is not None:
+
+        if not _qros_non_empty_string(tf):
+            errors.append(
+                "TF_INVALID"
+            )
+
+        elif (
+            _qros_non_empty_string(timeframe)
+            and tf != timeframe
+        ):
+            errors.append(
+                "TIMEFRAME_TF_MISMATCH"
+            )
+
+    # --------------------------------------------------------
+    # 5. DIRECTION / ACTION CONTRACT
+    # --------------------------------------------------------
+
+    direction = data.get("direction")
+
+    if direction not in QROS_ALLOWED_DIRECTIONS:
+        errors.append(
+            "INVALID_DIRECTION"
+        )
+
+    action = data.get("action")
+
+    if action not in QROS_ALLOWED_ACTIONS:
+        errors.append(
+            "INVALID_ACTION"
+        )
+
+    if (
+        direction == "LONG"
+        and action != "buy"
+    ):
+        errors.append(
+            "LONG_ACTION_MISMATCH"
+        )
+
+    if (
+        direction == "SHORT"
+        and action != "sell"
+    ):
+        errors.append(
+            "SHORT_ACTION_MISMATCH"
+        )
+
+    # --------------------------------------------------------
+    # 6. RESULT CONTRACT
+    # --------------------------------------------------------
+
+    result = data.get("result")
+
+    if result not in QROS_ALLOWED_RESULTS:
+        errors.append(
+            "INVALID_RESULT"
+        )
+
+    # --------------------------------------------------------
+    # 7. REQUIRED TRADE NUMERICS
+    # --------------------------------------------------------
+
+    required_numeric_fields = (
+        "entry",
+        "sl",
+        "tp",
+        "rr",
+        "score"
+    )
+
+    for field_name in required_numeric_fields:
+
+        value = data.get(field_name)
+
+        if not _qros_number_like(value):
+            errors.append(
+                "INVALID_NUMERIC_" +
+                field_name.upper()
+            )
+
+    # --------------------------------------------------------
+    # 8. BASIC PRICE SANITY
+    # --------------------------------------------------------
+
+    if _qros_number_like(data.get("entry")):
+
+        if float(data["entry"]) <= 0:
+            errors.append(
+                "ENTRY_NOT_POSITIVE"
+            )
+
+    if _qros_number_like(data.get("sl")):
+
+        if float(data["sl"]) <= 0:
+            errors.append(
+                "SL_NOT_POSITIVE"
+            )
+
+    if _qros_number_like(data.get("tp")):
+
+        if float(data["tp"]) <= 0:
+            errors.append(
+                "TP_NOT_POSITIVE"
+            )
+
+    if _qros_number_like(data.get("rr")):
+
+        if float(data["rr"]) <= 0:
+            errors.append(
+                "RR_NOT_POSITIVE"
+            )
+
+    # --------------------------------------------------------
+    # 9. ENTRY GEOMETRY
+    #
+    # LONG:
+    # SL < ENTRY < TP
+    #
+    # SHORT:
+    # TP < ENTRY < SL
+    # --------------------------------------------------------
+
+    if all(
+        _qros_number_like(data.get(name))
+        for name in (
+            "entry",
+            "sl",
+            "tp"
+        )
+    ):
+
+        entry = float(
+            data["entry"]
+        )
+
+        sl = float(
+            data["sl"]
+        )
+
+        tp = float(
+            data["tp"]
+        )
+
+        if direction == "LONG":
+
+            if not (
+                sl < entry < tp
+            ):
+                errors.append(
+                    "INVALID_LONG_PRICE_GEOMETRY"
+                )
+
+        elif direction == "SHORT":
+
+            if not (
+                tp < entry < sl
+            ):
+                errors.append(
+                    "INVALID_SHORT_PRICE_GEOMETRY"
+                )
+
+    # --------------------------------------------------------
+    # 10. LEARNING IDENTITY SUPPORT
+    # --------------------------------------------------------
+
+    fingerprint = data.get(
+        "fingerprint"
+    )
+
+    if not _qros_non_empty_string(
+        fingerprint
+    ):
+        warnings.append(
+            "FINGERPRINT_MISSING_OR_EMPTY"
+        )
+
+    setup = data.get(
+        "setup"
+    )
+
+    if not _qros_non_empty_string(
+        setup
+    ):
+        warnings.append(
+            "SETUP_MISSING_OR_EMPTY"
+        )
+
+    # --------------------------------------------------------
+    # FINAL
+    # --------------------------------------------------------
+
+    return {
+        "valid": len(errors) == 0,
+        "errors": errors,
+        "warnings": warnings
+    }
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    data = request.get_json(force=True)
+
+    # ========================================================
+    # STEP 45B.1 — SAFE JSON PARSING
+    # ========================================================
+
+    data = request.get_json(
+        silent=True
+    )
+
+    if not isinstance(data, dict):
+
+        print(
+            "QROS_PAYLOAD_GUARD "
+            "VALID=false "
+            "ERRORS=['INVALID_JSON_OR_ROOT']",
+            flush=True
+        )
+
+        return jsonify({
+            "status": "rejected",
+            "guard": "QROS_STEP45B1",
+            "reason": "INVALID_JSON_OR_ROOT"
+        }), 400
+
+    # ========================================================
+    # STEP 45B.1 — CONTRACT VALIDATION
+    # ========================================================
+
+    validation = validate_qros_v49_payload(
+        data
+    )
+
+    print(
+        "QROS_PAYLOAD_GUARD",
+        "MODE=" + QROS_PAYLOAD_GUARD_MODE,
+        "VALID=" + str(
+            validation["valid"]
+        ),
+        "TRADE_ID=" + str(
+            data.get(
+                "trade_id",
+                ""
+            )
+        ),
+        "RESULT=" + str(
+            data.get(
+                "result",
+                ""
+            )
+        ),
+        "ERRORS=" + str(
+            validation["errors"]
+        ),
+        "WARNINGS=" + str(
+            validation["warnings"]
+        ),
+        flush=True
+    )
+
+    # ========================================================
+    # ENFORCE MODE
+    #
+    # IMPORTANT:
+    # During STEP 45B.1 we remain SHADOW.
+    # This branch will therefore NOT run yet.
+    # ========================================================
+
+    if (
+        QROS_PAYLOAD_GUARD_MODE
+        == "ENFORCE"
+        and not validation["valid"]
+    ):
+
+        return jsonify({
+            "status": "rejected",
+            "guard": "QROS_STEP45B1",
+            "errors":
+                validation["errors"],
+            "warnings":
+                validation["warnings"]
+        }), 422
+
+    # ========================================================
+    # EXISTING DELIVERY PATH
+    #
+    # Preserved unchanged for STEP 45B.
+    # ========================================================
 
     Thread(
         target=process_webhook_background,
@@ -25,9 +468,23 @@ def webhook():
 
     return jsonify({
         "status": "received",
-        "message": "Webhook received by Railway"
-    }), 200
+        "message":
+            "Webhook received by Railway",
 
+        "payload_guard": {
+            "mode":
+                QROS_PAYLOAD_GUARD_MODE,
+
+            "valid":
+                validation["valid"],
+
+            "errors":
+                validation["errors"],
+
+            "warnings":
+                validation["warnings"]
+        }
+    }), 200
 
 def process_webhook_background(data):
     try:
