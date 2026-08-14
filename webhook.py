@@ -486,6 +486,81 @@ def webhook():
         }
     }), 200
 
+# ============================================================
+# QROS STEP 45B.2
+# Controlled Payload Validation Endpoint
+#
+# READ ONLY
+# - No CSV write
+# - No Google Apps Script call
+# - No QROS mutation
+# ============================================================
+
+@app.route("/validate", methods=["POST"])
+def validate_payload_only():
+
+    data = request.get_json(
+        silent=True
+    )
+
+    if not isinstance(data, dict):
+
+        return jsonify({
+            "status": "INVALID",
+            "guard": "QROS_STEP45B2",
+            "valid": False,
+            "errors": [
+                "INVALID_JSON_OR_ROOT"
+            ],
+            "warnings": []
+        }), 400
+
+    validation = validate_qros_v49_payload(
+        data
+    )
+
+    print(
+        "QROS_STEP45B2_VALIDATE",
+        "VALID=" + str(
+            validation["valid"]
+        ),
+        "TRADE_ID=" + str(
+            data.get("trade_id", "")
+        ),
+        "RESULT=" + str(
+            data.get("result", "")
+        ),
+        "ERRORS=" + str(
+            validation["errors"]
+        ),
+        "WARNINGS=" + str(
+            validation["warnings"]
+        ),
+        flush=True
+    )
+
+    return jsonify({
+        "status":
+            "VALID"
+            if validation["valid"]
+            else "INVALID",
+
+        "guard":
+            "QROS_STEP45B2",
+
+        "valid":
+            validation["valid"],
+
+        "errors":
+            validation["errors"],
+
+        "warnings":
+            validation["warnings"]
+    }), (
+        200
+        if validation["valid"]
+        else 422
+    )
 def process_webhook_background(data):
     try:
         if not GOOGLE_SCRIPT_SECRET:
