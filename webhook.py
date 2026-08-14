@@ -2,6 +2,7 @@ from flask import Flask, request, send_file, jsonify
 import csv
 import os
 import requests
+import time
 from datetime import datetime
 from threading import Thread
 
@@ -561,6 +562,157 @@ def validate_payload_only():
         if validation["valid"]
         else 422
     )
+
+def send_to_google_with_retry(google_payload, max_attempts=3):
+
+    retry_delays = [2, 5]
+    last_error = None
+
+    for attempt in range(1, max_attempts + 1):
+
+        try:
+
+            print(
+                f"QROS_DELIVERY ATTEMPT={attempt}/{max_attempts}",
+                flush=True
+            )
+
+            response = requests.post(
+                GOOGLE_SCRIPT_URL,
+                json=google_payload,
+                timeout=(10, 90)
+            )
+
+            print(
+                f"QROS_DELIVERY HTTP_STATUS={response.status_code}",
+                flush=True
+            )
+
+            print(
+                f"QROS_DELIVERY RESPONSE={response.text}",
+                flush=True
+            )
+
+            if 200 <= response.status_code < 300:
+
+                try:
+                    response_payload = response.json()
+                except ValueError:
+                    response_payload = {}
+
+                qros_status = str(
+                    response_payload.get("status", "")
+                ).strip()
+
+                if qros_status in (
+                    "SUCCESS",
+                    "DUPLICATE_ALREADY_ACCEPTED"
+                ):
+
+                    print(
+                        "QROS_DELIVERY CONFIRMED "
+                        f"ATTEMPT={attempt} "
+                        f"STATUS={qros_status}",
+                        flush=True
+                    )
+
+                    return {
+                        "delivered": True,
+                        "attempts": attempt,
+                        "status": qros_status,
+                        "http_status": response.status_code
+                    }
+
+                last_error = (
+                    "UNEXPECTED_QROS_ACK:"
+                    + qros_status
+                )
+
+                print(
+                    "QROS_DELIVERY UNEXPECTED_ACK "
+                    f"ATTEMPT={attempt} "
+                    f"STATUS={qros_status}",
+                    flush=True
+                )
+
+            elif response.status_code >= 500:
+
+                last_error = (
+                    "GOOGLE_HTTP_"
+                    + str(response.status_code)
+                )
+
+            else:
+
+                print(
+                    "QROS_DELIVERY PERMANENT_HTTP_FAILURE "
+                    f"STATUS={response.status_code}",
+                    flush=True
+                )
+
+                return {
+                    "delivered": False,
+                    "attempts": attempt,
+                    "status": "PERMANENT_HTTP_FAILURE",
+                    "http_status": response.status_code,
+                    "error": response.text
+                }
+
+        except requests.Timeout as exc:
+
+            last_error = (
+                "TIMEOUT:"
+                + str(exc)
+            )
+
+            print(
+                "QROS_DELIVERY TIMEOUT "
+                f"ATTEMPT={attempt}",
+                flush=True
+            )
+
+        except requests.RequestException as exc:
+
+            last_error = (
+                "REQUEST_ERROR:"
+                + str(exc)
+            )
+
+            print(
+                "QROS_DELIVERY REQUEST_ERROR "
+                f"ATTEMPT={attempt} "
+                f"ERROR={exc}",
+                flush=True
+            )
+
+        if attempt < max_attempts:
+
+            delay = retry_delays[
+                attempt - 1
+            ]
+
+            print(
+                "QROS_DELIVERY RETRY_SCHEDULED "
+                f"IN={delay}s",
+                flush=True
+            )
+
+            time.sleep(delay)
+
+    print(
+        "QROS_DELIVERY FAILED "
+        f"ATTEMPTS={max_attempts} "
+        f"LAST_ERROR={last_error}",
+        flush=True
+    )
+
+    return {
+        "delivered": False,
+        "attempts": max_attempts,
+        "status": "DELIVERY_FAILED",
+        "error": last_error
+    }
+    
 def process_webhook_background(data):
     try:
         if not GOOGLE_SCRIPT_SECRET:
@@ -709,19 +861,27 @@ def process_webhook_background(data):
 
         google_payload["webhook_secret"] = GOOGLE_SCRIPT_SECRET
 
-        response = requests.post(
-            GOOGLE_SCRIPT_URL,
-            json=google_payload,
-            timeout=15
+        delivery_result = send_to_google_with_retry(
+            google_payload
         )
 
-        print("Trade reçu :", trade, flush=True)
-        print("STATUS GOOGLE SHEETS =", response.status_code, flush=True)
-        print("REPONSE GOOGLE SHEETS =", response.text, flush=True)
+        print(
+            "Trade reçu :",
+            trade,
+            flush=True
+        )
 
+        print(
+            "QROS DELIVERY RESULT =",
+            delivery_result,
+            flush=True
+        )    
     except Exception as e:
-        print("BACKGROUND ERROR =", str(e), flush=True)
-
+        print(
+            "BACKGROUND ERROR =", 
+            str(e), 
+            flush=True
+        )
 
 @app.route("/download")
 def download_csv():
