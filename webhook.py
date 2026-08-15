@@ -906,6 +906,50 @@ def qros_queue_process_one_pending():
         "delivery_result":
             delivery_result
     }
+
+# ============================================================
+# QROS STEP 45E.3C-A
+# CONTROLLED DURABLE QUEUE WORKER CYCLE
+#
+# MANUAL / BOUNDED ONLY
+# - Reuses certified qros_queue_process_one_pending()
+# - Stops when queue has no PENDING event
+# - Stops after max_events
+# - No background thread
+# - No automatic startup
+# ============================================================
+
+def qros_queue_process_pending_cycle(max_events=10):
+
+    max_events = int(max_events)
+
+    if max_events <= 0:
+        return {
+            "processed_count": 0,
+            "status": "INVALID_MAX_EVENTS",
+            "results": []
+        }
+
+    results = []
+
+    for _ in range(max_events):
+
+        result = qros_queue_process_one_pending()
+
+        if result.get("processed") is not True:
+            break
+
+        results.append(result)
+
+    return {
+        "processed_count": len(results),
+        "status": (
+            "PROCESSED"
+            if results
+            else "NO_PENDING_EVENT"
+        ),
+        "results": results
+    }
     
 @app.route("/webhook", methods=["POST"])
 def webhook():
