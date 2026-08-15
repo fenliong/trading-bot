@@ -803,6 +803,110 @@ def qros_queue_mark_failed(
     finally:
         connection.close()
 
+# ============================================================
+# QROS STEP 45E.3A
+# MANUAL DURABLE QUEUE WORKER
+#
+# CONTROLLED / ONE EVENT ONLY
+# - Reads one PENDING event
+# - Delivers through certified STEP45D retry path
+# - Marks DELIVERED on SUCCESS or DUPLICATE_ALREADY_ACCEPTED
+# - Marks FAILED only on final delivery failure
+# - No automatic loop yet
+# ============================================================
+
+def qros_queue_process_one_pending():
+    pending_rows = qros_queue_list_pending(
+        limit=1
+    )
+
+    if not pending_rows:
+        return {
+            "processed": False,
+            "status": "NO_PENDING_EVENT"
+        }
+
+    row = pending_rows[0]
+
+    delivery_event_key = row[
+        "delivery_event_key"
+    ]
+
+    try:
+        payload = json.loads(
+            row["payload_json"]
+        )
+    except Exception as exc:
+        qros_queue_mark_failed(
+            delivery_event_key,
+            "INVALID_PAYLOAD_JSON:" + str(exc)
+        )
+
+        return {
+            "processed": True,
+            "delivery_event_key":
+                delivery_event_key,
+            "status": "FAILED",
+            "error": str(exc)
+        }
+
+    google_payload = dict(payload)
+    google_payload[
+        "webhook_secret"
+    ] = GOOGLE_SCRIPT_SECRET
+
+    qros_queue_mark_attempt(
+        delivery_event_key,
+        None
+    )
+
+    delivery_result = (
+        send_to_google_with_retry(
+            google_payload
+        )
+    )
+
+    if delivery_result.get(
+        "delivered"
+    ) is True:
+
+        qros_queue_mark_delivered(
+            delivery_event_key
+        )
+
+        return {
+            "processed": True,
+            "delivery_event_key":
+                delivery_event_key,
+            "status": "DELIVERED",
+            "delivery_result":
+                delivery_result
+        }
+
+    error_message = str(
+        delivery_result.get(
+            "error",
+            delivery_result.get(
+                "status",
+                "DELIVERY_FAILED"
+            )
+        )
+    )
+
+    qros_queue_mark_failed(
+        delivery_event_key,
+        error_message
+    )
+
+    return {
+        "processed": True,
+        "delivery_event_key":
+            delivery_event_key,
+        "status": "FAILED",
+        "delivery_result":
+            delivery_result
+    }
+    
 @app.route("/webhook", methods=["POST"])
 def webhook():
 
