@@ -27,6 +27,39 @@ QROS_QUEUE_DB_PATH = os.getenv(
 ).strip()
 
 # ============================================================
+# QROS STEP 45E.3C-B
+# AUTOMATIC QUEUE WORKER — CONTROL SETTINGS
+#
+# DEFAULT OFF
+# - Activation will be explicit through Railway Variables.
+# - No behavior change while disabled.
+# ============================================================
+
+QROS_QUEUE_WORKER_ENABLED = os.getenv(
+    "QROS_QUEUE_WORKER_ENABLED",
+    "false"
+).strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on"
+)
+
+QROS_QUEUE_WORKER_INTERVAL_SECONDS = float(
+    os.getenv(
+        "QROS_QUEUE_WORKER_INTERVAL_SECONDS",
+        "5"
+    )
+)
+
+QROS_QUEUE_WORKER_MAX_EVENTS_PER_CYCLE = int(
+    os.getenv(
+        "QROS_QUEUE_WORKER_MAX_EVENTS_PER_CYCLE",
+        "10"
+    )
+)
+
+# ============================================================
 # QROS STEP 45B.1
 # Railway Payload Contract Guard
 # Version: 0.1.0
@@ -950,6 +983,73 @@ def qros_queue_process_pending_cycle(max_events=10):
         ),
         "results": results
     }
+
+# ============================================================
+# QROS STEP 45E.3C-B
+# AUTOMATIC QUEUE WORKER LOOP
+#
+# CONTROLLED / NOT STARTED HERE
+# - Runs bounded queue cycles
+# - Sleeps between cycles
+# - Controlled by QROS_QUEUE_WORKER_ENABLED
+# - No startup hook yet
+# ============================================================
+
+def qros_queue_worker_loop():
+
+    print(
+        "QROS_QUEUE_WORKER_LOOP STARTED",
+        "INTERVAL_SECONDS="
+        + str(QROS_QUEUE_WORKER_INTERVAL_SECONDS),
+        "MAX_EVENTS_PER_CYCLE="
+        + str(QROS_QUEUE_WORKER_MAX_EVENTS_PER_CYCLE),
+        flush=True
+    )
+
+    while QROS_QUEUE_WORKER_ENABLED:
+
+        try:
+
+            cycle_result = qros_queue_process_pending_cycle(
+                max_events=
+                    QROS_QUEUE_WORKER_MAX_EVENTS_PER_CYCLE
+            )
+
+            print(
+                "QROS_QUEUE_WORKER_CYCLE",
+                "PROCESSED_COUNT="
+                + str(
+                    cycle_result.get(
+                        "processed_count",
+                        0
+                    )
+                ),
+                "STATUS="
+                + str(
+                    cycle_result.get(
+                        "status",
+                        ""
+                    )
+                ),
+                flush=True
+            )
+
+        except Exception as exc:
+
+            print(
+                "QROS_QUEUE_WORKER_ERROR",
+                "ERROR=" + str(exc),
+                flush=True
+            )
+
+        time.sleep(
+            QROS_QUEUE_WORKER_INTERVAL_SECONDS
+        )
+
+    print(
+        "QROS_QUEUE_WORKER_LOOP STOPPED",
+        flush=True
+    )
     
 @app.route("/webhook", methods=["POST"])
 def webhook():
