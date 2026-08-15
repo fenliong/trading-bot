@@ -1050,6 +1050,67 @@ def qros_queue_worker_loop():
         "QROS_QUEUE_WORKER_LOOP STOPPED",
         flush=True
     )
+
+# ============================================================
+# QROS STEP 45E.3C-C
+# AUTOMATIC QUEUE WORKER — CONTROLLED STARTER
+#
+# - Starts only when QROS_QUEUE_WORKER_ENABLED=True
+# - Prevents duplicate start inside the same Python process
+# - Does NOT start anything by itself
+# ============================================================
+
+_qros_queue_worker_thread = None
+
+
+def qros_queue_start_worker_if_enabled():
+
+    global _qros_queue_worker_thread
+
+    if not QROS_QUEUE_WORKER_ENABLED:
+
+        print(
+            "QROS_QUEUE_WORKER_START SKIPPED ENABLED=False",
+            flush=True
+        )
+
+        return {
+            "started": False,
+            "status": "DISABLED"
+        }
+
+    if (
+        _qros_queue_worker_thread is not None
+        and _qros_queue_worker_thread.is_alive()
+    ):
+
+        print(
+            "QROS_QUEUE_WORKER_START SKIPPED ALREADY_RUNNING",
+            flush=True
+        )
+
+        return {
+            "started": False,
+            "status": "ALREADY_RUNNING"
+        }
+
+    _qros_queue_worker_thread = Thread(
+        target=qros_queue_worker_loop,
+        daemon=True,
+        name="qros-durable-queue-worker"
+    )
+
+    _qros_queue_worker_thread.start()
+
+    print(
+        "QROS_QUEUE_WORKER_START STARTED",
+        flush=True
+    )
+
+    return {
+        "started": True,
+        "status": "STARTED"
+    }
     
 @app.route("/webhook", methods=["POST"])
 def webhook():
