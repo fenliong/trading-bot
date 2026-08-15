@@ -1,5 +1,6 @@
 from flask import Flask, request, send_file, jsonify
 import csv
+import json
 import os
 import sqlite3
 import requests
@@ -460,6 +461,347 @@ def qros_init_delivery_queue_db():
 
 
 qros_init_delivery_queue_db()
+
+# ============================================================
+# QROS STEP 45E.2B
+# DURABLE DELIVERY QUEUE — REPOSITORY FUNCTIONS
+#
+# REPOSITORY ONLY
+# - Does not modify /webhook behavior
+# - Does not call Google
+# - Does not start workers
+# ============================================================
+
+def qros_queue_now_iso():
+    return datetime.utcnow().isoformat(timespec="milliseconds") + "Z"
+
+
+def qros_queue_build_delivery_event_key(data):
+    trade_id = str(
+        data.get("trade_id", "")
+    ).strip()
+
+    event_phase = str(
+        data.get("result")
+        or data.get("resultat")
+        or ""
+    ).strip().upper()
+
+    if not trade_id or not event_phase:
+        return ""
+
+    return f"{trade_id}|{event_phase}"
+
+
+def qros_queue_get_event(delivery_event_key):
+    connection = sqlite3.connect(
+        QROS_QUEUE_DB_PATH,
+        timeout=30
+    )
+
+    connection.row_factory = sqlite3.Row
+
+    try:
+        connection.execute(
+            "PRAGMA busy_timeout = 30000"
+        )
+
+        row = connection.execute(
+            """
+            SELECT
+                id,
+                delivery_event_key,
+                trade_id,
+                event_phase,
+                payload_json,
+                status,
+                attempt_count,
+                created_at,
+                updated_at,
+                delivered_at,
+                last_error
+            FROM qros_delivery_queue
+            WHERE delivery_event_key = ?
+            """,
+            (
+                delivery_event_key,
+            )
+        ).fetchone()
+
+        if row is None:
+            return None
+
+        return dict(row)
+
+    finally:
+        connection.close()
+
+
+def qros_queue_enqueue(data):
+    delivery_event_key = (
+        qros_queue_build_delivery_event_key(data)
+    )
+
+    trade_id = str(
+        data.get("trade_id", "")
+    ).strip()
+
+    event_phase = str(
+        data.get("result")
+        or data.get("resultat")
+        or ""
+    ).strip().upper()
+
+    if (
+        not delivery_event_key
+        or not trade_id
+        or not event_phase
+    ):
+        return {
+            "enqueued": False,
+            "duplicate": False,
+            "status": "INVALID_DELIVERY_IDENTITY",
+            "delivery_event_key": delivery_event_key
+        }
+
+    payload_json = json.dumps(
+        data,
+        separators=(",", ":"),
+        sort_keys=True
+    )
+
+    now = qros_queue_now_iso()
+
+    connection = sqlite3.connect(
+        QROS_QUEUE_DB_PATH,
+        timeout=30
+    )
+
+    try:
+        connection.execute(
+            "PRAGMA busy_timeout = 30000"
+        )
+
+        try:
+            cursor = connection.execute(
+                """
+                INSERT INTO qros_delivery_queue (
+                    delivery_event_key,
+                    trade_id,
+                    event_phase,
+                    payload_json,
+                    status,
+                    attempt_count,
+                    created_at,
+                    updated_at,
+                    delivered_at,
+                    last_error
+                )
+                VALUES (?, ?, ?, ?, 'PENDING', 0, ?, ?, NULL, NULL)
+                """,
+                (
+                    delivery_event_key,
+                    trade_id,
+                    event_phase,
+                    payload_json,
+                    now,
+                    now
+                )
+            )
+
+            connection.commit()
+
+            return {
+                "enqueued": True,
+                "duplicate": False,
+                "status": "PENDING",
+                "delivery_event_key": delivery_event_key,
+                "row_id": cursor.lastrowid
+            }
+
+        except sqlite3.IntegrityError:
+            existing = qros_queue_get_event(
+                delivery_event_key
+            )
+
+            return {
+                "enqueued": False,
+                "duplicate": True,
+                "status": (
+                    existing["status"]
+                    if existing
+                    else "DUPLICATE"
+                ),
+                "delivery_event_key": delivery_event_key,
+                "row_id": (
+                    existing["id"]
+                    if existing
+                    else None
+                )
+            }
+
+    finally:
+        connection.close()
+
+
+def qros_queue_list_pending(limit=100):
+    connection = sqlite3.connect(
+        QROS_QUEUE_DB_PATH,
+        timeout=30
+    )
+
+    connection.row_factory = sqlite3.Row
+
+    try:
+        connection.execute(
+            "PRAGMA busy_timeout = 30000"
+        )
+
+        rows = connection.execute(
+            """
+            SELECT
+                id,
+                delivery_event_key,
+                trade_id,
+                event_phase,
+                payload_json,
+                status,
+                attempt_count,
+                created_at,
+                updated_at,
+                delivered_at,
+                last_error
+            FROM qros_delivery_queue
+            WHERE status = 'PENDING'
+            ORDER BY id ASC
+            LIMIT ?
+            """,
+            (
+                int(limit),
+            )
+        ).fetchall()
+
+        return [
+            dict(row)
+            for row in rows
+        ]
+
+    finally:
+        connection.close()
+
+
+def qros_queue_mark_attempt(
+    delivery_event_key,
+    error_message=None
+):
+    connection = sqlite3.connect(
+        QROS_QUEUE_DB_PATH,
+        timeout=30
+    )
+
+    try:
+        connection.execute(
+            "PRAGMA busy_timeout = 30000"
+        )
+
+        now = qros_queue_now_iso()
+
+        connection.execute(
+            """
+            UPDATE qros_delivery_queue
+            SET
+                attempt_count = attempt_count + 1,
+                updated_at = ?,
+                last_error = ?
+            WHERE delivery_event_key = ?
+            """,
+            (
+                now,
+                error_message,
+                delivery_event_key
+            )
+        )
+
+        connection.commit()
+
+    finally:
+        connection.close()
+
+
+def qros_queue_mark_delivered(
+    delivery_event_key
+):
+    connection = sqlite3.connect(
+        QROS_QUEUE_DB_PATH,
+        timeout=30
+    )
+
+    try:
+        connection.execute(
+            "PRAGMA busy_timeout = 30000"
+        )
+
+        now = qros_queue_now_iso()
+
+        connection.execute(
+            """
+            UPDATE qros_delivery_queue
+            SET
+                status = 'DELIVERED',
+                updated_at = ?,
+                delivered_at = ?,
+                last_error = NULL
+            WHERE delivery_event_key = ?
+            """,
+            (
+                now,
+                now,
+                delivery_event_key
+            )
+        )
+
+        connection.commit()
+
+    finally:
+        connection.close()
+
+
+def qros_queue_mark_failed(
+    delivery_event_key,
+    error_message
+):
+    connection = sqlite3.connect(
+        QROS_QUEUE_DB_PATH,
+        timeout=30
+    )
+
+    try:
+        connection.execute(
+            "PRAGMA busy_timeout = 30000"
+        )
+
+        now = qros_queue_now_iso()
+
+        connection.execute(
+            """
+            UPDATE qros_delivery_queue
+            SET
+                status = 'FAILED',
+                updated_at = ?,
+                last_error = ?
+            WHERE delivery_event_key = ?
+            """,
+            (
+                now,
+                str(error_message),
+                delivery_event_key
+            )
+        )
+
+        connection.commit()
+
+    finally:
+        connection.close()
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
