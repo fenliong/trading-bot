@@ -893,6 +893,76 @@ def webhook():
     # Preserved unchanged for STEP 45B.
     # ========================================================
 
+    # ========================================================
+    # QROS STEP 45E.2C
+    # DURABLE QUEUE — SHADOW ENQUEUE
+    #
+    # IMPORTANT:
+    # - Persist event before legacy background delivery.
+    # - Existing STEP45D Google delivery remains unchanged.
+    # - Queue does NOT deliver anything yet.
+    # ========================================================
+
+    try:
+
+        queue_result = qros_queue_enqueue(
+            data
+        )
+
+        print(
+            "QROS_STEP45E2C_SHADOW_ENQUEUE",
+            "TRADE_ID=" + str(
+                data.get("trade_id", "")
+            ),
+            "RESULT=" + str(
+                data.get("result")
+                or data.get("resultat")
+                or ""
+            ),
+            "ENQUEUED=" + str(
+                queue_result.get(
+                    "enqueued",
+                    False
+                )
+            ),
+            "DUPLICATE=" + str(
+                queue_result.get(
+                    "duplicate",
+                    False
+                )
+            ),
+            "STATUS=" + str(
+                queue_result.get(
+                    "status",
+                    ""
+                )
+            ),
+            "KEY=" + str(
+                queue_result.get(
+                    "delivery_event_key",
+                    ""
+                )
+            ),
+            flush=True
+        )
+
+    except Exception as queue_error:
+
+        # STEP45E.2C remains SHADOW.
+        # A queue failure must NOT break the certified
+        # STEP45D delivery path during this phase.
+
+        print(
+            "QROS_STEP45E2C_SHADOW_ERROR",
+            "TRADE_ID=" + str(
+                data.get("trade_id", "")
+            ),
+            "ERROR=" + str(
+                queue_error
+            ),
+            flush=True
+        )
+        
     Thread(
         target=process_webhook_background,
         args=(data,),
