@@ -1,6 +1,7 @@
 from flask import Flask, request, send_file, jsonify
 import csv
 import os
+import sqlite3
 import requests
 import time
 from datetime import datetime
@@ -13,6 +14,16 @@ fichier = "journal_trades.csv"
 GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyVUSrnvHzkFTyuMqZfjEvXbOe2_bkFRsCYbdtfXuR3MZgGJePgh5vF9-eqeHnCeDCq/exec"
 
 GOOGLE_SCRIPT_SECRET = os.getenv("GOOGLE_SCRIPT_SECRET", "").strip()
+
+# ============================================================
+# QROS STEP 45E.2A
+# DURABLE DELIVERY QUEUE — SQLITE PERSISTENT REPOSITORY
+# ============================================================
+
+QROS_QUEUE_DB_PATH = os.getenv(
+    "QROS_QUEUE_DB_PATH",
+    "/data/qros_delivery_queue.db"
+).strip()
 
 # ============================================================
 # QROS STEP 45B.1
@@ -371,6 +382,85 @@ def validate_qros_v49_payload(data):
         "errors": errors,
         "warnings": warnings
     }
+
+# ============================================================
+# QROS STEP 45E.2A
+# DURABLE DELIVERY QUEUE — SQLITE INITIALIZATION
+#
+# SHADOW / INFRASTRUCTURE ONLY
+# - Does not modify /webhook behavior
+# - Does not enqueue events yet
+# - Does not call Google
+# ============================================================
+
+def qros_init_delivery_queue_db():
+    os.makedirs(
+        os.path.dirname(QROS_QUEUE_DB_PATH),
+        exist_ok=True
+    )
+
+    connection = sqlite3.connect(
+        QROS_QUEUE_DB_PATH,
+        timeout=30
+    )
+
+    try:
+        connection.execute(
+            "PRAGMA busy_timeout = 30000"
+        )
+
+        connection.execute(
+            "PRAGMA synchronous = FULL"
+        )
+
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS qros_delivery_queue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+                delivery_event_key TEXT NOT NULL UNIQUE,
+                trade_id TEXT NOT NULL,
+                event_phase TEXT NOT NULL,
+
+                payload_json TEXT NOT NULL,
+
+                status TEXT NOT NULL DEFAULT 'PENDING',
+
+                attempt_count INTEGER NOT NULL DEFAULT 0,
+
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+
+                delivered_at TEXT,
+                last_error TEXT
+            )
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS
+                idx_qros_delivery_queue_status
+            ON qros_delivery_queue(status)
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS
+                idx_qros_delivery_queue_trade_id
+            ON qros_delivery_queue(trade_id)
+            """
+        )
+
+        connection.commit()
+
+    finally:
+        connection.close()
+
+
+qros_init_delivery_queue_db()
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
 
