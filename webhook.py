@@ -1698,6 +1698,15 @@ def process_webhook_background(data):
 def download_csv():
     return send_file("journal_trades.csv", as_attachment=True)
 
+# ============================================================
+# QROS STEP 45E.3C-D
+# AUTOMATIC QUEUE WORKER — APPLICATION STARTUP
+#
+# Starts only if QROS_QUEUE_WORKER_ENABLED=True.
+# Default remains OFF.
+# ============================================================
+
+qros_queue_start_worker_if_enabled()
 
 if __name__ == "__main__":
     app.run(
