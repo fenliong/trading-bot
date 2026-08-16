@@ -530,7 +530,31 @@ def qros_init_delivery_queue_db():
                 ADD COLUMN next_retry_at TEXT
                 """
             )
-            
+
+        if "claimed_at" not in existing_columns:
+            connection.execute(
+                """
+                ALTER TABLE qros_delivery_queue
+                ADD COLUMN claimed_at TEXT
+                """
+            )
+
+        if "lease_until" not in existing_columns:
+            connection.execute(
+                """
+                ALTER TABLE qros_delivery_queue
+                ADD COLUMN lease_until TEXT
+                """
+            )
+
+        if "worker_id" not in existing_columns:
+            connection.execute(
+                """
+                ALTER TABLE qros_delivery_queue
+                ADD COLUMN worker_id TEXT
+                """
+            )
+        
         connection.execute(
             """
             CREATE INDEX IF NOT EXISTS
