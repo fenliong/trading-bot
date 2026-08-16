@@ -876,6 +876,155 @@ def qros_queue_list_ready(limit=100):
     finally:
         connection.close()
 
+# ============================================================
+# QROS STEP 45E.7-C
+# CONCURRENCY SAFETY — ATOMIC READY EVENT CLAIM
+#
+# REPOSITORY ONLY
+# - Claims one READY PENDING event atomically.
+# - Moves it to PROCESSING.
+# - Stores worker identity and lease metadata.
+# - Does not call Google.
+# - Existing worker is NOT switched to this function yet.
+# ============================================================
+
+def qros_queue_claim_one_ready(
+    worker_id,
+    lease_seconds=120
+):
+
+    worker_id = str(worker_id).strip()
+
+    if not worker_id:
+        return {
+            "claimed": False,
+            "status": "INVALID_WORKER_ID"
+        }
+
+    connection = sqlite3.connect(
+        QROS_QUEUE_DB_PATH,
+        timeout=30
+    )
+
+    connection.row_factory = sqlite3.Row
+
+    try:
+        connection.execute(
+            "PRAGMA busy_timeout = 30000"
+        )
+
+        connection.execute(
+            "BEGIN IMMEDIATE"
+        )
+
+        now = qros_queue_now_iso()
+
+        lease_until = (
+            datetime.utcnow()
+            + timedelta(
+                seconds=int(lease_seconds)
+            )
+        ).isoformat(
+            timespec="milliseconds"
+        ) + "Z"
+
+        row = connection.execute(
+            """
+            SELECT
+                id,
+                delivery_event_key
+            FROM qros_delivery_queue
+            WHERE status = 'PENDING'
+              AND (
+                    next_retry_at IS NULL
+                    OR next_retry_at <= ?
+              )
+            ORDER BY id ASC
+            LIMIT 1
+            """,
+            (
+                now,
+            )
+        ).fetchone()
+
+        if row is None:
+            connection.commit()
+
+            return {
+                "claimed": False,
+                "status": "NO_READY_EVENT"
+            }
+
+        cursor = connection.execute(
+            """
+            UPDATE qros_delivery_queue
+            SET
+                status = 'PROCESSING',
+                updated_at = ?,
+                claimed_at = ?,
+                lease_until = ?,
+                worker_id = ?
+            WHERE id = ?
+              AND status = 'PENDING'
+            """,
+            (
+                now,
+                now,
+                lease_until,
+                worker_id,
+                row["id"]
+            )
+        )
+
+        if cursor.rowcount != 1:
+            connection.rollback()
+
+            return {
+                "claimed": False,
+                "status": "CLAIM_LOST"
+            }
+
+        claimed_row = connection.execute(
+            """
+            SELECT
+                id,
+                delivery_event_key,
+                trade_id,
+                event_phase,
+                payload_json,
+                status,
+                attempt_count,
+                created_at,
+                updated_at,
+                delivered_at,
+                last_error,
+                next_retry_at,
+                claimed_at,
+                lease_until,
+                worker_id
+            FROM qros_delivery_queue
+            WHERE id = ?
+            """,
+            (
+                row["id"],
+            )
+        ).fetchone()
+
+        connection.commit()
+
+        return {
+            "claimed": True,
+            "status": "PROCESSING",
+            "event": dict(claimed_row)
+        }
+
+    except Exception:
+        connection.rollback()
+        raise
+
+    finally:
+        connection.close()
+        
 
 def qros_queue_mark_attempt(
     delivery_event_key,
