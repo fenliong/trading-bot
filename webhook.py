@@ -1017,6 +1017,75 @@ def qros_queue_mark_dead_letter(
         connection.close()
 
 # ============================================================
+# QROS STEP 45E.5-C
+# DEAD LETTER QUEUE — CONTROLLED REPLAY
+#
+# REPOSITORY ONLY
+# - Replays DEAD_LETTER events only.
+# - Moves event back to PENDING.
+# - Resets durable attempt budget.
+# - Clears terminal error.
+# - Clears retry schedule.
+# - Preserves payload and delivery_event_key.
+# - Does not call Google.
+# ============================================================
+
+def qros_queue_replay_dead_letter(
+    delivery_event_key
+):
+
+    connection = sqlite3.connect(
+        QROS_QUEUE_DB_PATH,
+        timeout=30
+    )
+
+    try:
+        connection.execute(
+            "PRAGMA busy_timeout = 30000"
+        )
+
+        now = qros_queue_now_iso()
+
+        cursor = connection.execute(
+            """
+            UPDATE qros_delivery_queue
+            SET
+                status = 'PENDING',
+                attempt_count = 0,
+                updated_at = ?,
+                delivered_at = NULL,
+                last_error = NULL,
+                next_retry_at = NULL
+            WHERE delivery_event_key = ?
+              AND status = 'DEAD_LETTER'
+            """,
+            (
+                now,
+                delivery_event_key
+            )
+        )
+
+        connection.commit()
+
+        if cursor.rowcount == 0:
+            return {
+                "replayed": False,
+                "delivery_event_key":
+                    delivery_event_key,
+                "status": "NOT_DEAD_LETTER"
+            }
+
+        return {
+            "replayed": True,
+            "delivery_event_key":
+                delivery_event_key,
+            "status": "PENDING"
+        }
+
+    finally:
+        connection.close()
+
+# ============================================================
 # QROS STEP 45E.4-D
 # DURABLE RETRY — SCHEDULE RETRY
 #
