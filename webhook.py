@@ -919,6 +919,60 @@ def qros_queue_mark_failed(
         connection.close()
 
 # ============================================================
+# QROS STEP 45E.4-D
+# DURABLE RETRY — SCHEDULE RETRY
+#
+# REPOSITORY ONLY
+# - Keeps attempt_count unchanged.
+# - Preserves the failure reason.
+# - Moves event back to PENDING.
+# - Persists next_retry_at.
+# - Does not call Google.
+# ============================================================
+
+def qros_queue_schedule_retry(
+    delivery_event_key,
+    next_retry_at,
+    error_message
+):
+
+    connection = sqlite3.connect(
+        QROS_QUEUE_DB_PATH,
+        timeout=30
+    )
+
+    try:
+        connection.execute(
+            "PRAGMA busy_timeout = 30000"
+        )
+
+        now = qros_queue_now_iso()
+
+        connection.execute(
+            """
+            UPDATE qros_delivery_queue
+            SET
+                status = 'PENDING',
+                updated_at = ?,
+                next_retry_at = ?,
+                last_error = ?
+            WHERE delivery_event_key = ?
+            """,
+            (
+                now,
+                str(next_retry_at),
+                str(error_message),
+                delivery_event_key
+            )
+        )
+
+        connection.commit()
+
+    finally:
+        connection.close()
+
+
+# ============================================================
 # QROS STEP 45E.3A
 # MANUAL DURABLE QUEUE WORKER
 #
