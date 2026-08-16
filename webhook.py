@@ -5,7 +5,7 @@ import os
 import sqlite3
 import requests
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from threading import Thread
 
 app = Flask(__name__)
@@ -58,6 +58,51 @@ QROS_QUEUE_WORKER_MAX_EVENTS_PER_CYCLE = int(
         "10"
     )
 )
+
+# ============================================================
+# QROS STEP 45E.4-G
+# DURABLE RETRY — BACKOFF SETTINGS
+#
+# Persistent retry delays between worker attempts.
+# Does not modify STEP45D in-memory retry yet.
+# ============================================================
+
+QROS_QUEUE_RETRY_DELAYS_SECONDS = (
+    30,
+    120,
+    300
+)
+
+def qros_queue_get_retry_delay_seconds(attempt_count):
+    attempt_count = int(attempt_count)
+
+    if attempt_count <= 0:
+        return QROS_QUEUE_RETRY_DELAYS_SECONDS[0]
+
+    retry_index = attempt_count - 1
+
+    if retry_index >= len(QROS_QUEUE_RETRY_DELAYS_SECONDS):
+        return None
+
+    return QROS_QUEUE_RETRY_DELAYS_SECONDS[retry_index]
+
+def qros_queue_calculate_next_retry_at(attempt_count):
+    retry_delay_seconds = qros_queue_get_retry_delay_seconds(
+        attempt_count
+    )
+
+    if retry_delay_seconds is None:
+        return None
+
+    retry_at = (
+        datetime.utcnow()
+        + timedelta(seconds=retry_delay_seconds)
+    )
+
+    return (
+        retry_at.isoformat(timespec="milliseconds")
+        + "Z"
+    )
 
 # ============================================================
 # QROS STEP 45B.1
@@ -1063,6 +1108,37 @@ def qros_queue_process_one_pending():
         )
     )
 
+    durable_attempt_count = (
+        int(row["attempt_count"]) + 1
+    )
+
+    next_retry_at = (
+        qros_queue_calculate_next_retry_at(
+            durable_attempt_count
+        )
+    )
+
+    if next_retry_at is not None:
+
+        qros_queue_schedule_retry(
+            delivery_event_key,
+            next_retry_at,
+            error_message
+        )
+
+        return {
+            "processed": True,
+            "delivery_event_key":
+                delivery_event_key,
+            "status": "RETRY_SCHEDULED",
+            "attempt_count":
+                durable_attempt_count,
+            "next_retry_at":
+                next_retry_at,
+            "delivery_result":
+                delivery_result
+        }
+
     qros_queue_mark_failed(
         delivery_event_key,
         error_message
@@ -1073,6 +1149,8 @@ def qros_queue_process_one_pending():
         "delivery_event_key":
             delivery_event_key,
         "status": "FAILED",
+        "attempt_count":
+            durable_attempt_count,
         "delivery_result":
             delivery_result
     }
