@@ -471,6 +471,21 @@ def qros_init_delivery_queue_db():
             """
         )
 
+        existing_columns = {
+            row[1]
+            for row in connection.execute(
+                "PRAGMA table_info(qros_delivery_queue)"
+            ).fetchall()
+        }
+
+        if "next_retry_at" not in existing_columns:
+            connection.execute(
+                """
+                ALTER TABLE qros_delivery_queue
+                ADD COLUMN next_retry_at TEXT
+                """
+            )
+            
         connection.execute(
             """
             CREATE INDEX IF NOT EXISTS
