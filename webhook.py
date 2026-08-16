@@ -949,7 +949,8 @@ def qros_queue_mark_failed(
             SET
                 status = 'FAILED',
                 updated_at = ?,
-                last_error = ?
+                last_error = ?,
+                next_retry_at = NULL
             WHERE delivery_event_key = ?
             """,
             (
