@@ -865,7 +865,8 @@ def qros_queue_mark_delivered(
                 status = 'DELIVERED',
                 updated_at = ?,
                 delivered_at = ?,
-                last_error = NULL
+                last_error = NULL,
+                next_retry_at = NULL
             WHERE delivery_event_key = ?
             """,
             (
