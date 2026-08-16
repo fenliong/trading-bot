@@ -567,7 +567,8 @@ def qros_queue_get_event(delivery_event_key):
                 created_at,
                 updated_at,
                 delivered_at,
-                last_error
+                last_error,
+                next_retry_at
             FROM qros_delivery_queue
             WHERE delivery_event_key = ?
             """,
@@ -718,7 +719,8 @@ def qros_queue_list_pending(limit=100):
                 created_at,
                 updated_at,
                 delivered_at,
-                last_error
+                last_error,
+                next_retry_at
             FROM qros_delivery_queue
             WHERE status = 'PENDING'
             ORDER BY id ASC
