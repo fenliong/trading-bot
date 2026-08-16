@@ -637,7 +637,10 @@ def qros_queue_get_event(delivery_event_key):
                 updated_at,
                 delivered_at,
                 last_error,
-                next_retry_at
+                next_retry_at,
+                claimed_at,
+                lease_until,
+                worker_id        
             FROM qros_delivery_queue
             WHERE delivery_event_key = ?
             """,
