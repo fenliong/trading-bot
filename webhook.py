@@ -966,6 +966,57 @@ def qros_queue_mark_failed(
         connection.close()
 
 # ============================================================
+# QROS STEP 45E.5-A
+# DEAD LETTER QUEUE — MARK DEAD LETTER
+#
+# REPOSITORY ONLY
+# - Preserves attempt_count.
+# - Preserves payload.
+# - Stores terminal failure reason.
+# - Clears next_retry_at.
+# - Does not call Google.
+# ============================================================
+
+def qros_queue_mark_dead_letter(
+    delivery_event_key,
+    error_message
+):
+
+    connection = sqlite3.connect(
+        QROS_QUEUE_DB_PATH,
+        timeout=30
+    )
+
+    try:
+        connection.execute(
+            "PRAGMA busy_timeout = 30000"
+        )
+
+        now = qros_queue_now_iso()
+
+        connection.execute(
+            """
+            UPDATE qros_delivery_queue
+            SET
+                status = 'DEAD_LETTER',
+                updated_at = ?,
+                last_error = ?,
+                next_retry_at = NULL
+            WHERE delivery_event_key = ?
+            """,
+            (
+                now,
+                str(error_message),
+                delivery_event_key
+            )
+        )
+
+        connection.commit()
+
+    finally:
+        connection.close()
+
+# ============================================================
 # QROS STEP 45E.4-D
 # DURABLE RETRY — SCHEDULE RETRY
 #
