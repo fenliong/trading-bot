@@ -1086,6 +1086,65 @@ def qros_queue_replay_dead_letter(
         connection.close()
 
 # ============================================================
+# QROS STEP 45E.5-D
+# DEAD LETTER QUEUE — LIST DEAD LETTER EVENTS
+#
+# READ ONLY
+# - Lists DEAD_LETTER events only.
+# - Oldest events first.
+# - Does not modify queue state.
+# - Does not call Google.
+# ============================================================
+
+def qros_queue_list_dead_letters(limit=100):
+
+    connection = sqlite3.connect(
+        QROS_QUEUE_DB_PATH,
+        timeout=30
+    )
+
+    connection.row_factory = sqlite3.Row
+
+    try:
+        connection.execute(
+            "PRAGMA busy_timeout = 30000"
+        )
+
+        rows = connection.execute(
+            """
+            SELECT
+                id,
+                delivery_event_key,
+                trade_id,
+                event_phase,
+                payload_json,
+                status,
+                attempt_count,
+                created_at,
+                updated_at,
+                delivered_at,
+                last_error,
+                next_retry_at
+            FROM qros_delivery_queue
+            WHERE status = 'DEAD_LETTER'
+            ORDER BY id ASC
+            LIMIT ?
+            """,
+            (
+                int(limit),
+            )
+        ).fetchall()
+
+        return [
+            dict(row)
+            for row in rows
+        ]
+
+    finally:
+        connection.close()
+           
+
+# ============================================================
 # QROS STEP 45E.4-D
 # DURABLE RETRY — SCHEDULE RETRY
 #
