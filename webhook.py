@@ -985,7 +985,7 @@ def qros_queue_schedule_retry(
 # ============================================================
 
 def qros_queue_process_one_pending():
-    pending_rows = qros_queue_list_pending(
+    pending_rows = qros_queue_list_ready(
         limit=1
     )
 
