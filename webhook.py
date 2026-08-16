@@ -1191,7 +1191,7 @@ def qros_queue_process_one_pending():
                 delivery_result
         }
 
-    qros_queue_mark_failed(
+    qros_queue_mark_dead_letter(
         delivery_event_key,
         error_message
     )
@@ -1200,7 +1200,7 @@ def qros_queue_process_one_pending():
         "processed": True,
         "delivery_event_key":
             delivery_event_key,
-        "status": "FAILED",
+        "status": "DEAD_LETTER",
         "attempt_count":
             durable_attempt_count,
         "delivery_result":
