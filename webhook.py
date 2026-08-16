@@ -739,6 +739,71 @@ def qros_queue_list_pending(limit=100):
     finally:
         connection.close()
 
+# ============================================================
+# QROS STEP 45E.4-C
+# DURABLE RETRY — READY EVENT SELECTION
+#
+# READ ONLY
+# - Fresh PENDING events are immediately eligible.
+# - Scheduled retries are eligible only when next_retry_at
+#   has been reached.
+# - Existing worker is NOT switched to this function yet.
+# ============================================================
+
+def qros_queue_list_ready(limit=100):
+
+    connection = sqlite3.connect(
+        QROS_QUEUE_DB_PATH,
+        timeout=30
+    )
+
+    connection.row_factory = sqlite3.Row
+
+    try:
+        connection.execute(
+            "PRAGMA busy_timeout = 30000"
+        )
+
+        now = qros_queue_now_iso()
+
+        rows = connection.execute(
+            """
+            SELECT
+                id,
+                delivery_event_key,
+                trade_id,
+                event_phase,
+                payload_json,
+                status,
+                attempt_count,
+                created_at,
+                updated_at,
+                delivered_at,
+                last_error,
+                next_retry_at
+            FROM qros_delivery_queue
+            WHERE status = 'PENDING'
+              AND (
+                    next_retry_at IS NULL
+                    OR next_retry_at <= ?
+              )
+            ORDER BY id ASC
+            LIMIT ?
+            """,
+            (
+                now,
+                int(limit),
+            )
+        ).fetchall()
+
+        return [
+            dict(row)
+            for row in rows
+        ]
+
+    finally:
+        connection.close()
+
 
 def qros_queue_mark_attempt(
     delivery_event_key,
