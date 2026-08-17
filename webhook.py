@@ -2080,7 +2080,31 @@ def webhook():
             "max_body_bytes":
                 QROS_WEBHOOK_MAX_BODY_BYTES
         }), 413
-        
+
+    
+    # ========================================================
+    # QROS STEP 45E.9-B
+    # CONTENT TYPE JSON GUARD
+    # ========================================================
+
+    if not request.is_json:
+
+        print(
+            "QROS_WEBHOOK_HARDENING",
+            "REJECTED=UNSUPPORTED_CONTENT_TYPE",
+            "CONTENT_TYPE="
+            + str(request.content_type),
+            flush=True
+        )
+
+        return jsonify({
+            "status": "rejected",
+            "guard": "QROS_STEP45E9B",
+            "reason": "UNSUPPORTED_CONTENT_TYPE",
+            "expected_content_type":
+                "application/json"
+        }), 415
+    
     
     # ========================================================
     # STEP 45B.1 — SAFE JSON PARSING
