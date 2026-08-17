@@ -2295,6 +2295,27 @@ def validate_payload_only():
         else 422
     )
 
+# ============================================================
+# QROS STEP 45E.8-D
+# OBSERVABILITY — READ ONLY HEALTH ENDPOINT
+#
+# READ ONLY
+# - Exposes queue health snapshot over HTTP.
+# - Does not modify queue state.
+# - Does not call Google.
+# ============================================================
+
+@app.route("/qros/health", methods=["GET"])
+def qros_health_endpoint():
+
+    snapshot = qros_queue_health_snapshot()
+
+    return jsonify({
+        "status": "OK",
+        "queue": snapshot
+    }), 200
+
+
 def send_to_google_with_retry(google_payload, max_attempts=3):
 
     retry_delays = [2, 5]
