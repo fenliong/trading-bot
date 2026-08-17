@@ -1024,6 +1024,96 @@ def qros_queue_claim_one_ready(
 
     finally:
         connection.close()
+
+# ============================================================
+# QROS STEP 45E.7-D
+# CONCURRENCY SAFETY — EXPIRED LEASE RECOVERY
+#
+# REPOSITORY ONLY
+# - Recovers PROCESSING events whose lease has expired.
+# - Moves them back to PENDING.
+# - Clears claim metadata.
+# - Preserves attempt_count, payload and retry metadata.
+# - Does not call Google.
+# ============================================================
+
+def qros_queue_recover_expired_leases(limit=100):
+
+    connection = sqlite3.connect(
+        QROS_QUEUE_DB_PATH,
+        timeout=30
+    )
+
+    try:
+        connection.execute(
+            "PRAGMA busy_timeout = 30000"
+        )
+
+        connection.execute(
+            "BEGIN IMMEDIATE"
+        )
+
+        now = qros_queue_now_iso()
+
+        rows = connection.execute(
+            """
+            SELECT id
+            FROM qros_delivery_queue
+            WHERE status = 'PROCESSING'
+              AND lease_until IS NOT NULL
+              AND lease_until <= ?
+            ORDER BY id ASC
+            LIMIT ?
+            """,
+            (
+                now,
+                int(limit),
+            )
+        ).fetchall()
+
+        recovered_count = 0
+
+        for row in rows:
+            cursor = connection.execute(
+                """
+                UPDATE qros_delivery_queue
+                SET
+                    status = 'PENDING',
+                    updated_at = ?,
+                    claimed_at = NULL,
+                    lease_until = NULL,
+                    worker_id = NULL
+                WHERE id = ?
+                  AND status = 'PROCESSING'
+                  AND lease_until IS NOT NULL
+                  AND lease_until <= ?
+                """,
+                (
+                    now,
+                    row[0],
+                    now
+                )
+            )
+
+            recovered_count += cursor.rowcount
+
+        connection.commit()
+
+        return {
+            "recovered_count": recovered_count,
+            "status": (
+                "RECOVERED"
+                if recovered_count > 0
+                else "NO_EXPIRED_LEASE"
+            )
+        }
+
+    except Exception:
+        connection.rollback()
+        raise
+
+    finally:
+        connection.close()
         
 
 def qros_queue_mark_attempt(
