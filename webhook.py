@@ -2068,7 +2068,54 @@ def qros_queue_start_worker_if_enabled():
         "started": True,
         "status": "STARTED"
     }
-    
+
+
+# ============================================================
+# QROS STEP 45E.9-E
+# WEBHOOK HARDENING — JSON ERROR RESPONSES
+#
+# HTTP ERROR HANDLERS ONLY
+# - Keeps API error responses in JSON format.
+# - Does not expose internal exception details.
+# - Does not modify queue state.
+# - Does not call Google.
+# ============================================================
+
+@app.errorhandler(404)
+def qros_http_not_found(error):
+
+    return jsonify({
+        "status": "error",
+        "guard": "QROS_STEP45E9E",
+        "reason": "NOT_FOUND"
+    }), 404
+
+
+@app.errorhandler(405)
+def qros_http_method_not_allowed(error):
+
+    return jsonify({
+        "status": "error",
+        "guard": "QROS_STEP45E9E",
+        "reason": "METHOD_NOT_ALLOWED"
+    }), 405
+
+
+@app.errorhandler(500)
+def qros_http_internal_error(error):
+
+    print(
+        "QROS_WEBHOOK_HARDENING",
+        "ERROR=INTERNAL_SERVER_ERROR",
+        flush=True
+    )
+
+    return jsonify({
+        "status": "error",
+        "guard": "QROS_STEP45E9E",
+        "reason": "INTERNAL_SERVER_ERROR"
+    }), 500    
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
 
