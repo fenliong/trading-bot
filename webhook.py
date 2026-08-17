@@ -1540,6 +1540,70 @@ def qros_queue_health_snapshot():
 
     finally:
         connection.close()
+
+
+# ============================================================
+# QROS STEP 45E.8-B
+# OBSERVABILITY — ACTIVE QUEUE DIAGNOSTIC SNAPSHOT
+#
+# READ ONLY
+# - Lists PENDING and PROCESSING events only.
+# - Exposes operational metadata without full payload_json.
+# - Does not modify queue state.
+# - Does not call Google.
+# ============================================================
+
+def qros_queue_diagnostic_snapshot(limit=100):
+
+    connection = sqlite3.connect(
+        QROS_QUEUE_DB_PATH,
+        timeout=30
+    )
+
+    connection.row_factory = sqlite3.Row
+
+    try:
+        connection.execute(
+            "PRAGMA busy_timeout = 30000"
+        )
+
+        rows = connection.execute(
+            """
+            SELECT
+                id,
+                delivery_event_key,
+                trade_id,
+                event_phase,
+                status,
+                attempt_count,
+                created_at,
+                updated_at,
+                delivered_at,
+                last_error,
+                next_retry_at,
+                claimed_at,
+                lease_until,
+                worker_id
+            FROM qros_delivery_queue
+            WHERE status IN (
+                'PENDING',
+                'PROCESSING'
+            )
+            ORDER BY id ASC
+            LIMIT ?
+            """,
+            (
+                int(limit),
+            )
+        ).fetchall()
+
+        return [
+            dict(row)
+            for row in rows
+        ]
+
+    finally:
+        connection.close()
         
 
 # ============================================================
