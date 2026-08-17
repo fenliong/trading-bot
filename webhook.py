@@ -1476,18 +1476,31 @@ def qros_queue_schedule_retry(
 # - No automatic loop yet
 # ============================================================
 
+QROS_QUEUE_WORKER_ID = (
+    os.getenv(
+        "QROS_QUEUE_WORKER_ID",
+        "railway-worker"
+    ).strip()
+    or "railway-worker"
+)
+
 def qros_queue_process_one_pending():
-    pending_rows = qros_queue_list_ready(
-        limit=1
+
+    claim_result = qros_queue_claim_one_ready(
+        QROS_QUEUE_WORKER_ID,
+        lease_seconds=120
     )
 
-    if not pending_rows:
+    if claim_result.get("claimed") is not True:
         return {
             "processed": False,
-            "status": "NO_PENDING_EVENT"
+            "status": claim_result.get(
+                "status",
+                "NO_READY_EVENT"
+            )
         }
 
-    row = pending_rows[0]
+    row = claim_result["event"]
 
     delivery_event_key = row[
         "delivery_event_key"
