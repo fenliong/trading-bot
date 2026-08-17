@@ -1646,6 +1646,10 @@ def qros_queue_process_pending_cycle(max_events=10):
             "results": []
         }
 
+    recovery_result = qros_queue_recover_expired_leases(
+        limit=max_events
+    )    
+    
     results = []
 
     for _ in range(max_events):
@@ -1664,6 +1668,7 @@ def qros_queue_process_pending_cycle(max_events=10):
             if results
             else "NO_PENDING_EVENT"
         ),
+        "recovery_result": recovery_result,
         "results": results
     }
 
