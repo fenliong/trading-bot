@@ -1848,6 +1848,52 @@ def qros_queue_process_pending_cycle(max_events=10):
 
         results.append(result)
 
+    delivered_count = sum(
+        1
+        for item in results
+        if item.get("status") == "DELIVERED"
+    )
+
+    retry_scheduled_count = sum(
+        1
+        for item in results
+        if item.get("status") == "RETRY_SCHEDULED"
+    )
+
+    dead_letter_count = sum(
+        1
+        for item in results
+        if item.get("status") == "DEAD_LETTER"
+    )
+
+    recovered_count = int(
+        recovery_result.get(
+            "recovered_count",
+            0
+        )
+    )
+
+    print(
+        "QROS_QUEUE_OBSERVABILITY",
+        "PROCESSED_COUNT="
+        + str(len(results)),
+        "DELIVERED_COUNT="
+        + str(delivered_count),
+        "RETRY_SCHEDULED_COUNT="
+        + str(retry_scheduled_count),
+        "DEAD_LETTER_COUNT="
+        + str(dead_letter_count),
+        "RECOVERED_LEASES="
+        + str(recovered_count),
+        "CYCLE_STATUS="
+        + (
+            "PROCESSED"
+            if results
+            else "NO_PENDING_EVENT"
+        ),
+        flush=True
+    )    
+    
     return {
         "processed_count": len(results),
         "status": (
