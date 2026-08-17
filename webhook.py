@@ -26,6 +26,20 @@ QROS_QUEUE_DB_PATH = os.getenv(
     "/data/qros_delivery_queue.db"
 ).strip()
 
+
+# ============================================================
+# QROS STEP 45E.9-A
+# WEBHOOK HARDENING — REQUEST BODY SIZE LIMIT
+# ============================================================
+
+QROS_WEBHOOK_MAX_BODY_BYTES = int(
+    os.getenv(
+        "QROS_WEBHOOK_MAX_BODY_BYTES",
+        "65536"
+    )
+)
+
+
 # ============================================================
 # QROS STEP 45E.3C-B
 # AUTOMATIC QUEUE WORKER — CONTROL SETTINGS
@@ -2036,6 +2050,38 @@ def qros_queue_start_worker_if_enabled():
 @app.route("/webhook", methods=["POST"])
 def webhook():
 
+    
+    # ========================================================
+    # QROS STEP 45E.9-A
+    # REQUEST BODY SIZE GUARD
+    # ========================================================
+
+    content_length = request.content_length
+
+    if (
+        content_length is not None
+        and content_length > QROS_WEBHOOK_MAX_BODY_BYTES
+    ):
+
+        print(
+            "QROS_WEBHOOK_HARDENING",
+            "REJECTED=PAYLOAD_TOO_LARGE",
+            "CONTENT_LENGTH="
+            + str(content_length),
+            "MAX_BYTES="
+            + str(QROS_WEBHOOK_MAX_BODY_BYTES),
+            flush=True
+        )
+
+        return jsonify({
+            "status": "rejected",
+            "guard": "QROS_STEP45E9A",
+            "reason": "PAYLOAD_TOO_LARGE",
+            "max_body_bytes":
+                QROS_WEBHOOK_MAX_BODY_BYTES
+        }), 413
+        
+    
     # ========================================================
     # STEP 45B.1 — SAFE JSON PARSING
     # ========================================================
