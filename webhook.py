@@ -1177,7 +1177,10 @@ def qros_queue_mark_delivered(
                 updated_at = ?,
                 delivered_at = ?,
                 last_error = NULL,
-                next_retry_at = NULL
+                next_retry_at = NULL,
+                claimed_at = NULL,
+                lease_until = NULL,
+                worker_id = NULL
             WHERE delivery_event_key = ?
             """,
             (
@@ -1216,7 +1219,10 @@ def qros_queue_mark_failed(
                 status = 'FAILED',
                 updated_at = ?,
                 last_error = ?,
-                next_retry_at = NULL
+                next_retry_at = NULL,
+                claimed_at = NULL,
+                lease_until = NULL,
+                worker_id = NULL           
             WHERE delivery_event_key = ?
             """,
             (
@@ -1267,7 +1273,10 @@ def qros_queue_mark_dead_letter(
                 status = 'DEAD_LETTER',
                 updated_at = ?,
                 last_error = ?,
-                next_retry_at = NULL
+                next_retry_at = NULL,
+                claimed_at = NULL,
+                lease_until = NULL,
+                worker_id = NULL        
             WHERE delivery_event_key = ?
             """,
             (
