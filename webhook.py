@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from threading import Thread
 
 app = Flask(__name__)
-
+    
 fichier = "journal_trades.csv"
 
 GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyVUSrnvHzkFTyuMqZfjEvXbOe2_bkFRsCYbdtfXuR3MZgGJePgh5vF9-eqeHnCeDCq/exec"
@@ -2110,9 +2110,27 @@ def webhook():
     # STEP 45B.1 — SAFE JSON PARSING
     # ========================================================
 
-    data = request.get_json(
-        silent=True
+    raw_body = request.get_data(
+        cache=True,
+        as_text=True
     )
+
+    try:
+        data = json.loads(raw_body)
+    except json.JSONDecodeError as exc:
+
+        print(
+            "QROS_WEBHOOK_HARDENING",
+            "REJECTED=MALFORMED_JSON",
+            "ERROR=" + str(exc),
+            flush=True
+        )
+
+        return jsonify({
+            "status": "rejected",
+            "guard": "QROS_STEP45E9C",
+            "reason": "MALFORMED_JSON"
+        }), 400
 
     if not isinstance(data, dict):
 
