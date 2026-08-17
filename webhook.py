@@ -1418,6 +1418,129 @@ def qros_queue_list_dead_letters(limit=100):
     finally:
         connection.close()
            
+# ============================================================
+# QROS STEP 45E.8-A
+# OBSERVABILITY — QUEUE HEALTH SNAPSHOT
+#
+# READ ONLY
+# - Counts queue states.
+# - Counts READY events.
+# - Counts scheduled retries still waiting.
+# - Counts expired PROCESSING leases.
+# - Does not modify queue state.
+# - Does not call Google.
+# ============================================================
+
+def qros_queue_health_snapshot():
+
+    connection = sqlite3.connect(
+        QROS_QUEUE_DB_PATH,
+        timeout=30
+    )
+
+    connection.row_factory = sqlite3.Row
+
+    try:
+        connection.execute(
+            "PRAGMA busy_timeout = 30000"
+        )
+
+        now = qros_queue_now_iso()
+
+        status_rows = connection.execute(
+            """
+            SELECT
+                status,
+                COUNT(*) AS count
+            FROM qros_delivery_queue
+            GROUP BY status
+            """
+        ).fetchall()
+
+        status_counts = {
+            row["status"]: row["count"]
+            for row in status_rows
+        }
+
+        ready_now = connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM qros_delivery_queue
+            WHERE status = 'PENDING'
+              AND (
+                    next_retry_at IS NULL
+                    OR next_retry_at <= ?
+              )
+            """,
+            (
+                now,
+            )
+        ).fetchone()[0]
+
+        retry_waiting = connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM qros_delivery_queue
+            WHERE status = 'PENDING'
+              AND next_retry_at IS NOT NULL
+              AND next_retry_at > ?
+            """,
+            (
+                now,
+            )
+        ).fetchone()[0]
+
+        expired_lease = connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM qros_delivery_queue
+            WHERE status = 'PROCESSING'
+              AND lease_until IS NOT NULL
+              AND lease_until <= ?
+            """,
+            (
+                now,
+            )
+        ).fetchone()[0]
+
+        total = connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM qros_delivery_queue
+            """
+        ).fetchone()[0]
+
+        return {
+            "timestamp": now,
+            "total": total,
+            "pending": status_counts.get(
+                "PENDING",
+                0
+            ),
+            "processing": status_counts.get(
+                "PROCESSING",
+                0
+            ),
+            "delivered": status_counts.get(
+                "DELIVERED",
+                0
+            ),
+            "failed": status_counts.get(
+                "FAILED",
+                0
+            ),
+            "dead_letter": status_counts.get(
+                "DEAD_LETTER",
+                0
+            ),
+            "ready_now": ready_now,
+            "retry_waiting": retry_waiting,
+            "expired_lease": expired_lease
+        }
+
+    finally:
+        connection.close()
+        
 
 # ============================================================
 # QROS STEP 45E.4-D
