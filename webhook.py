@@ -2433,13 +2433,76 @@ def webhook():
             flush=True
         )
         
-    Thread(
-        target=process_webhook_background,
-        args=(data,),
-        daemon=True
-    ).start()
+    # ========================================================
+    # QROS STEP 45E.10-B
+    # CONTROLLED CUTOVER — DELIVERY PATH ROUTING
+    #
+    # LEGACY:
+    # - Preserves certified background delivery.
+    #
+    # DURABLE_QUEUE:
+    # - Does NOT start legacy background delivery.
+    # - Event remains persisted in durable queue.
+    #
+    # No automatic mode change.
+    # ========================================================
+
+    if QROS_DELIVERY_PATH_MODE == "LEGACY":
+
+        print(
+            "QROS_DELIVERY_PATH",
+            "MODE=LEGACY",
+            "ACTION=START_LEGACY_BACKGROUND",
+            "TRADE_ID="
+            + str(
+                data.get(
+                    "trade_id",
+                    ""
+                )
+            ),
+            flush=True
+        )
+
+        Thread(
+            target=process_webhook_background,
+            args=(data,),
+            daemon=True
+        ).start()
+
+    elif QROS_DELIVERY_PATH_MODE == "DURABLE_QUEUE":
+
+        print(
+            "QROS_DELIVERY_PATH",
+            "MODE=DURABLE_QUEUE",
+            "ACTION=QUEUE_ONLY",
+            "TRADE_ID="
+            + str(
+                data.get(
+                    "trade_id",
+                    ""
+                )
+            ),
+            flush=True
+        )
+
+    else:
+
+        print(
+            "QROS_DELIVERY_PATH",
+            "MODE="
+            + str(QROS_DELIVERY_PATH_MODE),
+            "ACTION=INVALID_MODE",
+            flush=True
+        )
+
+        return jsonify({
+            "status": "error",
+            "guard": "QROS_STEP45E10B",
+            "reason": "INVALID_DELIVERY_PATH_MODE"
+        }), 503
 
     return jsonify({
+        
         "status": "received",
         "message":
             "Webhook received by Railway",
