@@ -2,6 +2,7 @@ from flask import Flask, request, send_file, jsonify
 import csv
 import json
 import os
+import hmac
 import sqlite3
 import requests
 import time
@@ -38,6 +39,27 @@ QROS_WEBHOOK_MAX_BODY_BYTES = int(
         "65536"
     )
 )
+
+
+# ============================================================
+# QROS STEP 45E.9-D
+# WEBHOOK HARDENING — INGRESS AUTHENTICATION
+#
+# DEFAULT MODE: SHADOW
+# - OFF: no ingress secret validation.
+# - SHADOW: validates/logs but does not reject.
+# - ENFORCE: rejects missing/invalid ingress secret.
+# ============================================================
+
+QROS_WEBHOOK_AUTH_MODE = os.getenv(
+    "QROS_WEBHOOK_AUTH_MODE",
+    "SHADOW"
+).strip().upper()
+
+QROS_WEBHOOK_INGRESS_SECRET = os.getenv(
+    "QROS_WEBHOOK_INGRESS_SECRET",
+    ""
+).strip()
 
 
 # ============================================================
@@ -2147,6 +2169,73 @@ def webhook():
             "reason": "INVALID_JSON_OR_ROOT"
         }), 400
 
+    # ========================================================
+    # QROS STEP 45E.9-D
+    # INGRESS AUTHENTICATION GUARD
+    # ========================================================
+
+    ingress_secret = str(
+        data.get(
+            "qros_ingress_secret",
+            ""
+        )
+    ).strip()
+
+    ingress_secret_configured = bool(
+        QROS_WEBHOOK_INGRESS_SECRET
+    )
+
+    ingress_secret_valid = (
+        ingress_secret_configured
+        and bool(ingress_secret)
+        and hmac.compare_digest(
+            ingress_secret,
+            QROS_WEBHOOK_INGRESS_SECRET
+        )
+    )
+
+    print(
+        "QROS_WEBHOOK_AUTH",
+        "MODE=" + QROS_WEBHOOK_AUTH_MODE,
+        "CONFIGURED="
+        + str(ingress_secret_configured),
+        "VALID="
+        + str(ingress_secret_valid),
+        "TRADE_ID="
+        + str(
+            data.get(
+                "trade_id",
+                ""
+            )
+        ),
+        flush=True
+    )
+
+    if (
+        QROS_WEBHOOK_AUTH_MODE == "ENFORCE"
+        and not ingress_secret_configured
+    ):
+
+        return jsonify({
+            "status": "rejected",
+            "guard": "QROS_STEP45E9D",
+            "reason":
+                "INGRESS_SECRET_NOT_CONFIGURED"
+        }), 503
+
+    if (
+        QROS_WEBHOOK_AUTH_MODE == "ENFORCE"
+        and not ingress_secret_valid
+    ):
+
+        return jsonify({
+            "status": "rejected",
+            "guard": "QROS_STEP45E9D",
+            "reason":
+                "UNAUTHORIZED_WEBHOOK"
+        }), 401
+
+    
     # ========================================================
     # STEP 45B.1 — CONTRACT VALIDATION
     # ========================================================
