@@ -63,6 +63,22 @@ QROS_WEBHOOK_INGRESS_SECRET = os.getenv(
 
 
 # ============================================================
+# QROS STEP 45E.10-A
+# CONTROLLED CUTOVER — DELIVERY PATH MODE
+#
+# DEFAULT: LEGACY
+# - LEGACY: preserves current production delivery path.
+# - DURABLE_QUEUE: routes accepted events to durable queue.
+# - No automatic cutover.
+# ============================================================
+
+QROS_DELIVERY_PATH_MODE = os.getenv(
+    "QROS_DELIVERY_PATH_MODE",
+    "LEGACY"
+).strip().upper()
+
+
+# ============================================================
 # QROS STEP 45E.3C-B
 # AUTOMATIC QUEUE WORKER — CONTROL SETTINGS
 #
