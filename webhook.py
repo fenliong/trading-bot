@@ -209,6 +209,149 @@ QROS_PAYLOAD_GUARD_MODE = os.getenv(
     "SHADOW"
 ).strip().upper()
 
+
+# ============================================================
+# QROS STEP 45E.12-A
+# PRODUCTION RUNTIME SAFETY — STARTUP CONFIG VALIDATION
+#
+# FAIL FAST
+# - Rejects incoherent Railway configuration at startup.
+# - Does not modify queue state.
+# - Does not call Google.
+# ============================================================
+
+def qros_validate_startup_config():
+
+    errors = []
+
+    if QROS_WEBHOOK_AUTH_MODE not in (
+        "OFF",
+        "SHADOW",
+        "ENFORCE"
+    ):
+        errors.append(
+            "INVALID_QROS_WEBHOOK_AUTH_MODE"
+        )
+
+    if QROS_DELIVERY_PATH_MODE not in (
+        "LEGACY",
+        "DURABLE_QUEUE"
+    ):
+        errors.append(
+            "INVALID_QROS_DELIVERY_PATH_MODE"
+        )
+
+    if QROS_PAYLOAD_GUARD_MODE not in (
+        "SHADOW",
+        "ENFORCE"
+    ):
+        errors.append(
+            "INVALID_QROS_PAYLOAD_GUARD_MODE"
+        )
+
+    if QROS_QUEUE_WORKER_INTERVAL_SECONDS <= 0:
+        errors.append(
+            "WORKER_INTERVAL_MUST_BE_POSITIVE"
+        )
+
+    if QROS_QUEUE_WORKER_MAX_EVENTS_PER_CYCLE <= 0:
+        errors.append(
+            "WORKER_MAX_EVENTS_MUST_BE_POSITIVE"
+        )
+
+    if QROS_HEALTH_PENDING_DEGRADED <= 0:
+        errors.append(
+            "PENDING_DEGRADED_MUST_BE_POSITIVE"
+        )
+
+    if QROS_HEALTH_PENDING_CRITICAL <= (
+        QROS_HEALTH_PENDING_DEGRADED
+    ):
+        errors.append(
+            "PENDING_CRITICAL_MUST_EXCEED_DEGRADED"
+        )
+
+    if QROS_HEALTH_RETRY_CRITICAL <= 0:
+        errors.append(
+            "RETRY_CRITICAL_MUST_BE_POSITIVE"
+        )
+
+    if QROS_HEALTH_DEAD_LETTER_DEGRADED <= 0:
+        errors.append(
+            "DEAD_LETTER_DEGRADED_MUST_BE_POSITIVE"
+        )
+
+    if QROS_HEALTH_DEAD_LETTER_HIGH <= (
+        QROS_HEALTH_DEAD_LETTER_DEGRADED
+    ):
+        errors.append(
+            "DEAD_LETTER_HIGH_MUST_EXCEED_DEGRADED"
+        )
+
+    if QROS_HEALTH_PENDING_STALE_SECONDS <= 0:
+        errors.append(
+            "PENDING_STALE_SECONDS_MUST_BE_POSITIVE"
+        )
+
+    if QROS_HEALTH_PENDING_STUCK_SECONDS <= (
+        QROS_HEALTH_PENDING_STALE_SECONDS
+    ):
+        errors.append(
+            "PENDING_STUCK_MUST_EXCEED_STALE"
+        )
+
+    if QROS_HEALTH_WORKER_HEARTBEAT_STALE_SECONDS <= 0:
+        errors.append(
+            "WORKER_HEARTBEAT_STALE_MUST_BE_POSITIVE"
+        )
+
+    minimum_heartbeat_window = max(
+        1,
+        int(
+            QROS_QUEUE_WORKER_INTERVAL_SECONDS * 2
+        )
+    )
+
+    if (
+        QROS_HEALTH_WORKER_HEARTBEAT_STALE_SECONDS
+        < minimum_heartbeat_window
+    ):
+        errors.append(
+            "WORKER_HEARTBEAT_STALE_TOO_LOW"
+        )
+
+    if errors:
+
+        print(
+            "QROS_STARTUP_CONFIG_INVALID",
+            "ERRORS=" + str(errors),
+            flush=True
+        )
+
+        raise RuntimeError(
+            "QROS_STARTUP_CONFIG_INVALID:"
+            + ",".join(errors)
+        )
+
+    print(
+        "QROS_STARTUP_CONFIG_VALID",
+        "DELIVERY_PATH_MODE="
+        + QROS_DELIVERY_PATH_MODE,
+        "AUTH_MODE="
+        + QROS_WEBHOOK_AUTH_MODE,
+        "PAYLOAD_GUARD_MODE="
+        + QROS_PAYLOAD_GUARD_MODE,
+        flush=True
+    )
+
+    return {
+        "valid": True,
+        "errors": []
+    }
+
+
+qros_validate_startup_config()
+
 QROS_SUPPORTED_VERSION = "QROS_V49.0.1"
 
 QROS_ALLOWED_RESULTS = {
