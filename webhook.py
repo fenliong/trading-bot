@@ -2706,13 +2706,14 @@ def validate_payload_only():
 @app.route("/qros/health", methods=["GET"])
 def qros_health_endpoint():
 
-    snapshot = qros_queue_health_snapshot()
+    classification = qros_queue_health_classification()
 
     return jsonify({
         "status": "OK",
-        "queue": snapshot
+        "health": classification["health"],
+        "reasons": classification["reasons"],
+        "queue": classification["queue"]
     }), 200
-
 
 def send_to_google_with_retry(google_payload, max_attempts=3):
 
