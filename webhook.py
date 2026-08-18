@@ -1664,6 +1664,11 @@ def qros_queue_health_classification():
             "HIGH_DEAD_LETTER_COUNT"
         )
 
+    elif dead_letter >= 10:
+        reasons.append(
+            "ELEVATED_DEAD_LETTER_COUNT"
+        )
+        
     if (
         expired_lease > 0
         or pending >= 20
