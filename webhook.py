@@ -2702,6 +2702,224 @@ def qros_queue_lifecycle_invariant_snapshot(limit=100):
         connection.close()
 
 # ============================================================
+# QROS STEP 45E.13-E
+# PRODUCTION DELIVERY INTEGRITY — CONSOLIDATED TRADE AUDIT
+#
+# READ ONLY / SHADOW ONLY
+# - Consolidates durable queue state by trade_id.
+# - Summarizes OPEN/final lifecycle, queue statuses and attempts.
+# - Surfaces lifecycle anomalies without changing delivery behavior.
+# - Does not modify queue state.
+# - Does not call Google.
+# - Does not change worker behavior.
+# ============================================================
+
+def qros_queue_consolidated_trade_audit(limit=100):
+
+    limit = max(
+        1,
+        int(limit)
+    )
+
+    connection = sqlite3.connect(
+        QROS_QUEUE_DB_PATH,
+        timeout=30
+    )
+
+    connection.row_factory = sqlite3.Row
+
+    try:
+        connection.execute(
+            "PRAGMA busy_timeout = 30000"
+        )
+
+        rows = connection.execute(
+            """
+            SELECT
+                id,
+                delivery_event_key,
+                trade_id,
+                event_phase,
+                status,
+                attempt_count,
+                created_at,
+                updated_at,
+                delivered_at,
+                last_error,
+                next_retry_at,
+                claimed_at,
+                lease_until,
+                worker_id
+            FROM qros_delivery_queue
+            ORDER BY trade_id ASC, id ASC
+            """
+        ).fetchall()
+
+        grouped = {}
+
+        for row in rows:
+            trade_id = str(
+                row["trade_id"] or ""
+            ).strip()
+
+            if not trade_id:
+                continue
+
+            grouped.setdefault(
+                trade_id,
+                []
+            ).append(row)
+
+        terminal_phases = (
+            "WIN",
+            "LOSS",
+            "BE"
+        )
+
+        trades = []
+        anomaly_trade_count = 0
+        closed_trade_count = 0
+        open_only_trade_count = 0
+        total_attempt_count = 0
+
+        for trade_id in sorted(grouped.keys()):
+
+            if len(trades) >= limit:
+                break
+
+            trade_rows = grouped[trade_id]
+
+            open_rows = [
+                row
+                for row in trade_rows
+                if str(
+                    row["event_phase"] or ""
+                ).strip().upper() == "OPEN"
+            ]
+
+            final_rows = [
+                row
+                for row in trade_rows
+                if str(
+                    row["event_phase"] or ""
+                ).strip().upper() in terminal_phases
+            ]
+
+            anomalies = []
+
+            if final_rows and not open_rows:
+                anomalies.append(
+                    "CLOSE_WITHOUT_OPEN"
+                )
+
+            if open_rows and final_rows:
+                first_open_id = min(
+                    int(row["id"])
+                    for row in open_rows
+                )
+
+                if any(
+                    int(row["id"]) < first_open_id
+                    for row in final_rows
+                ):
+                    anomalies.append(
+                        "CLOSE_BEFORE_OPEN"
+                    )
+
+            distinct_final_phases = sorted({
+                str(
+                    row["event_phase"] or ""
+                ).strip().upper()
+                for row in final_rows
+            })
+
+            if len(distinct_final_phases) > 1:
+                anomalies.append(
+                    "CONTRADICTORY_FINAL_OUTCOMES"
+                )
+
+            event_attempt_count = sum(
+                max(
+                    0,
+                    int(row["attempt_count"] or 0)
+                )
+                for row in trade_rows
+            )
+
+            total_attempt_count += event_attempt_count
+
+            final_outcome = (
+                distinct_final_phases[0]
+                if len(distinct_final_phases) == 1
+                else None
+            )
+
+            if final_rows:
+                lifecycle_state = "CLOSED"
+                closed_trade_count += 1
+            elif open_rows:
+                lifecycle_state = "OPEN_ONLY"
+                open_only_trade_count += 1
+            else:
+                lifecycle_state = "NO_OPEN"
+
+            if anomalies:
+                anomaly_trade_count += 1
+
+            events = []
+
+            for row in trade_rows:
+                events.append({
+                    "id": row["id"],
+                    "delivery_event_key":
+                        row["delivery_event_key"],
+                    "event_phase": str(
+                        row["event_phase"] or ""
+                    ).strip().upper(),
+                    "status": str(
+                        row["status"] or ""
+                    ).strip().upper(),
+                    "attempt_count": int(
+                        row["attempt_count"] or 0
+                    ),
+                    "created_at": row["created_at"],
+                    "updated_at": row["updated_at"],
+                    "delivered_at": row["delivered_at"],
+                    "last_error": row["last_error"],
+                    "next_retry_at": row["next_retry_at"],
+                    "claimed_at": row["claimed_at"],
+                    "lease_until": row["lease_until"],
+                    "worker_id": row["worker_id"]
+                })
+
+            trades.append({
+                "trade_id": trade_id,
+                "lifecycle_state": lifecycle_state,
+                "final_outcome": final_outcome,
+                "event_count": len(trade_rows),
+                "attempt_count": event_attempt_count,
+                "open_event_count": len(open_rows),
+                "final_event_count": len(final_rows),
+                "anomalies": anomalies,
+                "events": events
+            })
+
+        return {
+            "timestamp": qros_queue_now_iso(),
+            "checked_trade_count": len(trades),
+            "total_trade_count": len(grouped),
+            "closed_trade_count": closed_trade_count,
+            "open_only_trade_count": open_only_trade_count,
+            "anomaly_trade_count": anomaly_trade_count,
+            "total_attempt_count": total_attempt_count,
+            "valid": anomaly_trade_count == 0,
+            "trades": trades
+        }
+
+    finally:
+        connection.close()
+
+# ============================================================
 # QROS STEP 45E.8-B
 # OBSERVABILITY — ACTIVE QUEUE DIAGNOSTIC SNAPSHOT
 #
