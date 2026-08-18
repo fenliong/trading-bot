@@ -2261,6 +2261,285 @@ def qros_queue_health_classification():
 
 
 # ============================================================
+# QROS STEP 45E.13-A
+# PRODUCTION DELIVERY INTEGRITY — STATE INVARIANT AUDITOR
+#
+# READ ONLY / SHADOW ONLY
+# - Audits durable queue rows without modifying them.
+# - Validates canonical delivery identity and state metadata.
+# - Does not call Google.
+# - Does not change worker behavior.
+# ============================================================
+
+QROS_QUEUE_ALLOWED_STATUSES = (
+    "PENDING",
+    "PROCESSING",
+    "DELIVERED",
+    "FAILED",
+    "DEAD_LETTER"
+)
+
+QROS_QUEUE_ALLOWED_EVENT_PHASES = (
+    "OPEN",
+    "WIN",
+    "LOSS",
+    "BE"
+)
+
+
+def qros_queue_delivery_invariant_snapshot(limit=100):
+
+    limit = max(
+        1,
+        int(limit)
+    )
+
+    connection = sqlite3.connect(
+        QROS_QUEUE_DB_PATH,
+        timeout=30
+    )
+
+    connection.row_factory = sqlite3.Row
+
+    try:
+        connection.execute(
+            "PRAGMA busy_timeout = 30000"
+        )
+
+        rows = connection.execute(
+            """
+            SELECT
+                id,
+                delivery_event_key,
+                trade_id,
+                event_phase,
+                status,
+                attempt_count,
+                delivered_at,
+                last_error,
+                next_retry_at,
+                claimed_at,
+                lease_until,
+                worker_id
+            FROM qros_delivery_queue
+            ORDER BY id ASC
+            """
+        ).fetchall()
+
+        violations = []
+
+        def add_violation(row, code):
+            if len(violations) >= limit:
+                return
+
+            violations.append({
+                "id": row["id"],
+                "delivery_event_key":
+                    row["delivery_event_key"],
+                "trade_id": row["trade_id"],
+                "event_phase": row["event_phase"],
+                "status": row["status"],
+                "code": code
+            })
+
+        for row in rows:
+
+            status = str(
+                row["status"] or ""
+            ).strip().upper()
+
+            trade_id = str(
+                row["trade_id"] or ""
+            ).strip()
+
+            event_phase = str(
+                row["event_phase"] or ""
+            ).strip().upper()
+
+            delivery_event_key = str(
+                row["delivery_event_key"] or ""
+            ).strip()
+
+            expected_delivery_event_key = (
+                trade_id + "|" + event_phase
+                if trade_id and event_phase
+                else ""
+            )
+
+            claim_metadata_present = any((
+                row["claimed_at"] is not None,
+                row["lease_until"] is not None,
+                row["worker_id"] is not None
+            ))
+
+            claim_metadata_complete = all((
+                row["claimed_at"] is not None,
+                row["lease_until"] is not None,
+                bool(
+                    str(
+                        row["worker_id"] or ""
+                    ).strip()
+                )
+            ))
+
+            if status not in QROS_QUEUE_ALLOWED_STATUSES:
+                add_violation(
+                    row,
+                    "UNKNOWN_QUEUE_STATUS"
+                )
+                continue
+
+            if not trade_id:
+                add_violation(
+                    row,
+                    "TRADE_ID_MISSING"
+                )
+
+            if event_phase not in QROS_QUEUE_ALLOWED_EVENT_PHASES:
+                add_violation(
+                    row,
+                    "INVALID_EVENT_PHASE"
+                )
+
+            if (
+                not delivery_event_key
+                or delivery_event_key
+                    != expected_delivery_event_key
+            ):
+                add_violation(
+                    row,
+                    "DELIVERY_EVENT_KEY_MISMATCH"
+                )
+
+            if int(row["attempt_count"] or 0) < 0:
+                add_violation(
+                    row,
+                    "NEGATIVE_ATTEMPT_COUNT"
+                )
+
+            if status == "PENDING":
+
+                if row["delivered_at"] is not None:
+                    add_violation(
+                        row,
+                        "PENDING_WITH_DELIVERED_AT"
+                    )
+
+                if claim_metadata_present:
+                    add_violation(
+                        row,
+                        "PENDING_WITH_CLAIM_METADATA"
+                    )
+
+            elif status == "PROCESSING":
+
+                if row["delivered_at"] is not None:
+                    add_violation(
+                        row,
+                        "PROCESSING_WITH_DELIVERED_AT"
+                    )
+
+                if not claim_metadata_complete:
+                    add_violation(
+                        row,
+                        "PROCESSING_CLAIM_METADATA_INCOMPLETE"
+                    )
+
+            elif status == "DELIVERED":
+
+                if row["delivered_at"] is None:
+                    add_violation(
+                        row,
+                        "DELIVERED_WITHOUT_DELIVERED_AT"
+                    )
+
+                if row["last_error"] is not None:
+                    add_violation(
+                        row,
+                        "DELIVERED_WITH_LAST_ERROR"
+                    )
+
+                if row["next_retry_at"] is not None:
+                    add_violation(
+                        row,
+                        "DELIVERED_WITH_RETRY_SCHEDULE"
+                    )
+
+                if claim_metadata_present:
+                    add_violation(
+                        row,
+                        "DELIVERED_WITH_CLAIM_METADATA"
+                    )
+
+            elif status == "FAILED":
+
+                if row["delivered_at"] is not None:
+                    add_violation(
+                        row,
+                        "FAILED_WITH_DELIVERED_AT"
+                    )
+
+                if not str(
+                    row["last_error"] or ""
+                ).strip():
+                    add_violation(
+                        row,
+                        "FAILED_WITHOUT_ERROR"
+                    )
+
+                if row["next_retry_at"] is not None:
+                    add_violation(
+                        row,
+                        "FAILED_WITH_RETRY_SCHEDULE"
+                    )
+
+                if claim_metadata_present:
+                    add_violation(
+                        row,
+                        "FAILED_WITH_CLAIM_METADATA"
+                    )
+
+            elif status == "DEAD_LETTER":
+
+                if row["delivered_at"] is not None:
+                    add_violation(
+                        row,
+                        "DEAD_LETTER_WITH_DELIVERED_AT"
+                    )
+
+                if not str(
+                    row["last_error"] or ""
+                ).strip():
+                    add_violation(
+                        row,
+                        "DEAD_LETTER_WITHOUT_ERROR"
+                    )
+
+                if row["next_retry_at"] is not None:
+                    add_violation(
+                        row,
+                        "DEAD_LETTER_WITH_RETRY_SCHEDULE"
+                    )
+
+                if claim_metadata_present:
+                    add_violation(
+                        row,
+                        "DEAD_LETTER_WITH_CLAIM_METADATA"
+                    )
+
+        return {
+            "timestamp": qros_queue_now_iso(),
+            "checked_count": len(rows),
+            "valid": len(violations) == 0,
+            "violation_count": len(violations),
+            "violations": violations
+        }
+
+    finally:
+        connection.close()
+
+
+# ============================================================
 # QROS STEP 45E.8-B
 # OBSERVABILITY — ACTIVE QUEUE DIAGNOSTIC SNAPSHOT
 #
