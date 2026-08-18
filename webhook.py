@@ -447,6 +447,64 @@ def qros_validate_runtime_prerequisites():
 
 qros_validate_runtime_prerequisites()
 
+
+# ============================================================
+# QROS STEP 45E.12-E
+# PRODUCTION RUNTIME SAFETY — SAFE STARTUP SUMMARY
+#
+# READ ONLY / LOGGING ONLY
+# - Emits one non-sensitive runtime summary at startup.
+# - Never prints secret values.
+# - Does not modify queue state.
+# - Does not call Google.
+# ============================================================
+
+def qros_log_safe_startup_summary():
+
+    print(
+        "QROS_STARTUP_SUMMARY",
+        "DELIVERY_PATH_MODE=" + QROS_DELIVERY_PATH_MODE,
+        "AUTH_MODE=" + QROS_WEBHOOK_AUTH_MODE,
+        "PAYLOAD_GUARD_MODE=" + QROS_PAYLOAD_GUARD_MODE,
+        "WORKER_ENABLED=" + str(QROS_QUEUE_WORKER_ENABLED),
+        "WORKER_INTERVAL_SECONDS="
+        + str(QROS_QUEUE_WORKER_INTERVAL_SECONDS),
+        "WORKER_MAX_EVENTS_PER_CYCLE="
+        + str(QROS_QUEUE_WORKER_MAX_EVENTS_PER_CYCLE),
+        "QUEUE_DB_PATH=" + QROS_QUEUE_DB_PATH,
+        "WEBHOOK_MAX_BODY_BYTES="
+        + str(QROS_WEBHOOK_MAX_BODY_BYTES),
+        "GOOGLE_SECRET_CONFIGURED="
+        + str(bool(GOOGLE_SCRIPT_SECRET)),
+        "INGRESS_SECRET_CONFIGURED="
+        + str(bool(QROS_WEBHOOK_INGRESS_SECRET)),
+        "HEALTH_PENDING_DEGRADED="
+        + str(QROS_HEALTH_PENDING_DEGRADED),
+        "HEALTH_PENDING_CRITICAL="
+        + str(QROS_HEALTH_PENDING_CRITICAL),
+        "HEALTH_RETRY_CRITICAL="
+        + str(QROS_HEALTH_RETRY_CRITICAL),
+        "HEALTH_DEAD_LETTER_DEGRADED="
+        + str(QROS_HEALTH_DEAD_LETTER_DEGRADED),
+        "HEALTH_DEAD_LETTER_HIGH="
+        + str(QROS_HEALTH_DEAD_LETTER_HIGH),
+        "HEALTH_PENDING_STALE_SECONDS="
+        + str(QROS_HEALTH_PENDING_STALE_SECONDS),
+        "HEALTH_PENDING_STUCK_SECONDS="
+        + str(QROS_HEALTH_PENDING_STUCK_SECONDS),
+        "HEALTH_WORKER_HEARTBEAT_STALE_SECONDS="
+        + str(QROS_HEALTH_WORKER_HEARTBEAT_STALE_SECONDS),
+        "RETRY_DELAYS_SECONDS="
+        + ",".join(
+            str(value)
+            for value in QROS_QUEUE_RETRY_DELAYS_SECONDS
+        ),
+        flush=True
+    )
+
+
+qros_log_safe_startup_summary()
+
 QROS_SUPPORTED_VERSION = "QROS_V49.0.1"
 
 QROS_ALLOWED_RESULTS = {
