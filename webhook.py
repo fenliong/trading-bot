@@ -320,8 +320,28 @@ def qros_validate_startup_config():
             "WORKER_HEARTBEAT_STALE_TOO_LOW"
         )
 
-    if errors:
+    # ========================================================
+    # QROS STEP 45E.12-C
+    # PRODUCTION RUNTIME SAFETY — CROSS-MODE STARTUP GUARDS
+    # ========================================================
 
+    if (
+        QROS_WEBHOOK_AUTH_MODE == "ENFORCE"
+        and not QROS_WEBHOOK_INGRESS_SECRET
+    ):
+        errors.append(
+            "INGRESS_SECRET_REQUIRED_FOR_ENFORCE"
+        )
+
+    if (
+        QROS_DELIVERY_PATH_MODE == "DURABLE_QUEUE"
+        and not QROS_QUEUE_WORKER_ENABLED
+    ):
+        errors.append(
+            "DURABLE_QUEUE_REQUIRES_WORKER_ENABLED"
+        )
+
+    if errors:
         print(
             "QROS_STARTUP_CONFIG_INVALID",
             "ERRORS=" + str(errors),
