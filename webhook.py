@@ -1687,6 +1687,17 @@ def qros_queue_health_classification():
         )
     )
 
+    oldest_pending_age_seconds = (
+        snapshot.get(
+            "oldest_pending_age_seconds"
+        )
+    )
+
+    if oldest_pending_age_seconds is not None:
+        oldest_pending_age_seconds = int(
+            oldest_pending_age_seconds
+        )
+
     reasons = []
 
     if expired_lease > 0:
@@ -1713,11 +1724,31 @@ def qros_queue_health_classification():
         reasons.append(
             "ELEVATED_DEAD_LETTER_COUNT"
         )
-        
+
+    if (
+        oldest_pending_age_seconds is not None
+        and oldest_pending_age_seconds >= 300
+    ):
+        reasons.append(
+            "STUCK_PENDING_EVENT"
+        )
+
+    elif (
+        oldest_pending_age_seconds is not None
+        and oldest_pending_age_seconds >= 60
+    ):
+        reasons.append(
+            "STALE_PENDING_EVENT"
+        )
+
     if (
         expired_lease > 0
         or pending >= 20
         or retry_waiting >= 10
+        or (
+            oldest_pending_age_seconds is not None
+            and oldest_pending_age_seconds >= 300
+        )
     ):
         health = "CRITICAL"
 
@@ -1726,6 +1757,10 @@ def qros_queue_health_classification():
         or retry_waiting > 0
         or processing > 5
         or dead_letter >= 10
+        or (
+            oldest_pending_age_seconds is not None
+            and oldest_pending_age_seconds >= 60
+        )
     ):
         health = "DEGRADED"
 
@@ -1737,7 +1772,7 @@ def qros_queue_health_classification():
         "reasons": reasons,
         "queue": snapshot
     }
-    
+
 
 # ============================================================
 # QROS STEP 45E.8-B
