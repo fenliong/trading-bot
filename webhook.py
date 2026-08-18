@@ -1555,6 +1555,47 @@ def qros_queue_health_snapshot():
             )
         ).fetchone()[0]
 
+        oldest_pending_created_at = connection.execute(
+            """
+            SELECT MIN(created_at)
+            FROM qros_delivery_queue
+            WHERE status = 'PENDING'
+            """
+        ).fetchone()[0]
+
+        oldest_pending_age_seconds = None
+
+        if oldest_pending_created_at is not None:
+
+            try:
+                oldest_pending_datetime = datetime.fromisoformat(
+                    oldest_pending_created_at.replace(
+                        "Z",
+                        "+00:00"
+                    )
+                )
+
+                now_datetime = datetime.fromisoformat(
+                    now.replace(
+                        "Z",
+                        "+00:00"
+                    )
+                )
+
+                oldest_pending_age_seconds = max(
+                    0,
+                    int(
+                        (
+                            now_datetime
+                            - oldest_pending_datetime
+                        ).total_seconds()
+                    )
+                )
+
+            except (TypeError, ValueError):
+
+                oldest_pending_age_seconds = None
+        
         total = connection.execute(
             """
             SELECT COUNT(*)
@@ -1587,7 +1628,11 @@ def qros_queue_health_snapshot():
             ),
             "ready_now": ready_now,
             "retry_waiting": retry_waiting,
-            "expired_lease": expired_lease
+            "expired_lease": expired_lease,
+            "oldest_pending_created_at":
+                oldest_pending_created_at,
+            "oldest_pending_age_seconds":
+                oldest_pending_age_seconds
         }
 
     finally:
