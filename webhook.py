@@ -2539,6 +2539,168 @@ def qros_queue_delivery_invariant_snapshot(limit=100):
         connection.close()
 
 
+
+# ============================================================
+# QROS STEP 45E.13-B
+# PRODUCTION DELIVERY INTEGRITY — OPEN/CLOSE LIFECYCLE AUDITOR
+#
+# READ ONLY / SHADOW ONLY
+# - Audits trade lifecycle ordering by trade_id.
+# - Detects CLOSE_WITHOUT_OPEN and CLOSE_BEFORE_OPEN.
+# - Detects multiple contradictory final outcomes.
+# - Does not modify queue state.
+# - Does not call Google.
+# - Does not change worker behavior.
+# ============================================================
+
+def qros_queue_lifecycle_invariant_snapshot(limit=100):
+
+    limit = max(
+        1,
+        int(limit)
+    )
+
+    connection = sqlite3.connect(
+        QROS_QUEUE_DB_PATH,
+        timeout=30
+    )
+
+    connection.row_factory = sqlite3.Row
+
+    try:
+        connection.execute(
+            "PRAGMA busy_timeout = 30000"
+        )
+
+        rows = connection.execute(
+            """
+            SELECT
+                id,
+                delivery_event_key,
+                trade_id,
+                event_phase,
+                status,
+                created_at,
+                updated_at,
+                delivered_at
+            FROM qros_delivery_queue
+            ORDER BY trade_id ASC, id ASC
+            """
+        ).fetchall()
+
+        grouped = {}
+
+        for row in rows:
+            trade_id = str(
+                row["trade_id"] or ""
+            ).strip()
+
+            grouped.setdefault(
+                trade_id,
+                []
+            ).append(row)
+
+        violations = []
+        checked_trade_count = 0
+
+        def add_violation(
+            trade_id,
+            code,
+            event_id=None,
+            event_phase=None
+        ):
+            if len(violations) >= limit:
+                return
+
+            violations.append({
+                "trade_id": trade_id,
+                "event_id": event_id,
+                "event_phase": event_phase,
+                "code": code
+            })
+
+        terminal_phases = (
+            "WIN",
+            "LOSS",
+            "BE"
+        )
+
+        for trade_id, trade_rows in grouped.items():
+
+            if not trade_id:
+                continue
+
+            checked_trade_count += 1
+
+            open_rows = [
+                row
+                for row in trade_rows
+                if str(
+                    row["event_phase"] or ""
+                ).strip().upper() == "OPEN"
+            ]
+
+            final_rows = [
+                row
+                for row in trade_rows
+                if str(
+                    row["event_phase"] or ""
+                ).strip().upper() in terminal_phases
+            ]
+
+            if final_rows and not open_rows:
+                first_final = final_rows[0]
+                add_violation(
+                    trade_id,
+                    "CLOSE_WITHOUT_OPEN",
+                    first_final["id"],
+                    str(
+                        first_final["event_phase"] or ""
+                    ).strip().upper()
+                )
+                continue
+
+            if open_rows and final_rows:
+                first_open_id = min(
+                    int(row["id"])
+                    for row in open_rows
+                )
+
+                for final_row in final_rows:
+                    if int(final_row["id"]) < first_open_id:
+                        add_violation(
+                            trade_id,
+                            "CLOSE_BEFORE_OPEN",
+                            final_row["id"],
+                            str(
+                                final_row["event_phase"] or ""
+                            ).strip().upper()
+                        )
+
+            distinct_final_phases = {
+                str(
+                    row["event_phase"] or ""
+                ).strip().upper()
+                for row in final_rows
+            }
+
+            if len(distinct_final_phases) > 1:
+                add_violation(
+                    trade_id,
+                    "CONTRADICTORY_FINAL_OUTCOMES"
+                )
+
+        return {
+            "timestamp": qros_queue_now_iso(),
+            "checked_trade_count": checked_trade_count,
+            "valid": len(violations) == 0,
+            "violation_count": len(violations),
+            "violations": violations
+        }
+
+    finally:
+        connection.close()
+
 # ============================================================
 # QROS STEP 45E.8-B
 # OBSERVABILITY — ACTIVE QUEUE DIAGNOSTIC SNAPSHOT
