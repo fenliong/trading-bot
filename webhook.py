@@ -1603,6 +1603,75 @@ def qros_queue_health_snapshot():
             """
         ).fetchone()[0]
 
+        worker_thread_alive = bool(
+            _qros_queue_worker_thread is not None
+            and _qros_queue_worker_thread.is_alive()
+        )
+
+        worker_started_age_seconds = None
+
+        if QROS_QUEUE_WORKER_STARTED_AT is not None:
+
+            try:
+                worker_started_datetime = datetime.fromisoformat(
+                    QROS_QUEUE_WORKER_STARTED_AT.replace(
+                        "Z",
+                        "+00:00"
+                    )
+                )
+
+                now_datetime = datetime.fromisoformat(
+                    now.replace(
+                        "Z",
+                        "+00:00"
+                    )
+                )
+
+                worker_started_age_seconds = max(
+                    0,
+                    int(
+                        (
+                            now_datetime
+                            - worker_started_datetime
+                        ).total_seconds()
+                    )
+                )
+
+            except (TypeError, ValueError):
+                worker_started_age_seconds = None
+
+        worker_last_successful_cycle_age_seconds = None
+
+        if QROS_QUEUE_WORKER_LAST_SUCCESSFUL_CYCLE_AT is not None:
+
+            try:
+                last_cycle_datetime = datetime.fromisoformat(
+                    QROS_QUEUE_WORKER_LAST_SUCCESSFUL_CYCLE_AT.replace(
+                        "Z",
+                        "+00:00"
+                    )
+                )
+
+                now_datetime = datetime.fromisoformat(
+                    now.replace(
+                        "Z",
+                        "+00:00"
+                    )
+                )
+
+                worker_last_successful_cycle_age_seconds = max(
+                    0,
+                    int(
+                        (
+                            now_datetime
+                            - last_cycle_datetime
+                        ).total_seconds()
+                    )
+                )
+
+            except (TypeError, ValueError):
+                worker_last_successful_cycle_age_seconds = None
+
         return {
             "timestamp": now,
             "total": total,
@@ -1632,7 +1701,25 @@ def qros_queue_health_snapshot():
             "oldest_pending_created_at":
                 oldest_pending_created_at,
             "oldest_pending_age_seconds":
-                oldest_pending_age_seconds
+                oldest_pending_age_seconds,
+            "worker_enabled":
+                QROS_QUEUE_WORKER_ENABLED,
+            "worker_thread_alive":
+                worker_thread_alive,
+            "worker_started_at":
+                QROS_QUEUE_WORKER_STARTED_AT,
+            "worker_started_age_seconds":
+                worker_started_age_seconds,
+            "worker_last_successful_cycle_at":
+                QROS_QUEUE_WORKER_LAST_SUCCESSFUL_CYCLE_AT,
+            "worker_last_successful_cycle_age_seconds":
+                worker_last_successful_cycle_age_seconds,
+            "worker_last_cycle_status":
+                QROS_QUEUE_WORKER_LAST_CYCLE_STATUS,
+            "worker_last_error_at":
+                QROS_QUEUE_WORKER_LAST_ERROR_AT,
+            "worker_last_error":
+                QROS_QUEUE_WORKER_LAST_ERROR
         }
 
     finally:
@@ -1698,6 +1785,38 @@ def qros_queue_health_classification():
             oldest_pending_age_seconds
         )
 
+    worker_enabled = bool(
+        snapshot.get(
+            "worker_enabled",
+            False
+        )
+    )
+
+    worker_thread_alive = bool(
+        snapshot.get(
+            "worker_thread_alive",
+            False
+        )
+    )
+
+    worker_started_age_seconds = snapshot.get(
+        "worker_started_age_seconds"
+    )
+
+    if worker_started_age_seconds is not None:
+        worker_started_age_seconds = int(
+            worker_started_age_seconds
+        )
+
+    worker_last_successful_cycle_age_seconds = snapshot.get(
+        "worker_last_successful_cycle_age_seconds"
+    )
+
+    if worker_last_successful_cycle_age_seconds is not None:
+        worker_last_successful_cycle_age_seconds = int(
+            worker_last_successful_cycle_age_seconds
+        )
+
     reasons = []
 
     if expired_lease > 0:
@@ -1741,10 +1860,40 @@ def qros_queue_health_classification():
             "STALE_PENDING_EVENT"
         )
 
+    worker_liveness_critical = False
+
+    if worker_enabled:
+
+        if not worker_thread_alive:
+            reasons.append(
+                "WORKER_THREAD_NOT_ALIVE"
+            )
+            worker_liveness_critical = True
+
+        elif (
+            worker_last_successful_cycle_age_seconds is None
+            and worker_started_age_seconds is not None
+            and worker_started_age_seconds >= 30
+        ):
+            reasons.append(
+                "WORKER_HEARTBEAT_MISSING"
+            )
+            worker_liveness_critical = True
+
+        elif (
+            worker_last_successful_cycle_age_seconds is not None
+            and worker_last_successful_cycle_age_seconds >= 30
+        ):
+            reasons.append(
+                "WORKER_HEARTBEAT_STALE"
+            )
+            worker_liveness_critical = True
+
     if (
         expired_lease > 0
         or pending >= 20
         or retry_waiting >= 10
+        or worker_liveness_critical
         or (
             oldest_pending_age_seconds is not None
             and oldest_pending_age_seconds >= 300
@@ -2138,6 +2287,24 @@ def qros_queue_process_pending_cycle(max_events=10):
     }
 
 # ============================================================
+# QROS STEP 45E.11-F
+# PRODUCTION GUARDRAILS — WORKER LIVENESS HEARTBEAT
+#
+# IN-MEMORY OBSERVABILITY ONLY
+# - Tracks worker start and last successful cycle.
+# - Tracks last worker loop error.
+# - Does not modify queue state.
+# - Does not call Google.
+# ============================================================
+
+QROS_QUEUE_WORKER_STARTED_AT = None
+QROS_QUEUE_WORKER_LAST_SUCCESSFUL_CYCLE_AT = None
+QROS_QUEUE_WORKER_LAST_CYCLE_STATUS = None
+QROS_QUEUE_WORKER_LAST_ERROR_AT = None
+QROS_QUEUE_WORKER_LAST_ERROR = None
+
+
+# ============================================================
 # QROS STEP 45E.3C-B
 # AUTOMATIC QUEUE WORKER LOOP
 #
@@ -2149,6 +2316,14 @@ def qros_queue_process_pending_cycle(max_events=10):
 # ============================================================
 
 def qros_queue_worker_loop():
+
+    global QROS_QUEUE_WORKER_STARTED_AT
+    global QROS_QUEUE_WORKER_LAST_SUCCESSFUL_CYCLE_AT
+    global QROS_QUEUE_WORKER_LAST_CYCLE_STATUS
+    global QROS_QUEUE_WORKER_LAST_ERROR_AT
+    global QROS_QUEUE_WORKER_LAST_ERROR
+
+    QROS_QUEUE_WORKER_STARTED_AT = qros_queue_now_iso()
 
     print(
         "QROS_QUEUE_WORKER_LOOP STARTED",
@@ -2168,6 +2343,20 @@ def qros_queue_worker_loop():
                     QROS_QUEUE_WORKER_MAX_EVENTS_PER_CYCLE
             )
 
+            QROS_QUEUE_WORKER_LAST_SUCCESSFUL_CYCLE_AT = (
+                qros_queue_now_iso()
+            )
+
+            QROS_QUEUE_WORKER_LAST_CYCLE_STATUS = str(
+                cycle_result.get(
+                    "status",
+                    ""
+                )
+            )
+
+            QROS_QUEUE_WORKER_LAST_ERROR_AT = None
+            QROS_QUEUE_WORKER_LAST_ERROR = None
+
             print(
                 "QROS_QUEUE_WORKER_CYCLE",
                 "PROCESSED_COUNT="
@@ -2178,20 +2367,25 @@ def qros_queue_worker_loop():
                     )
                 ),
                 "STATUS="
-                + str(
-                    cycle_result.get(
-                        "status",
-                        ""
-                    )
-                ),
+                + QROS_QUEUE_WORKER_LAST_CYCLE_STATUS,
+                "HEARTBEAT_AT="
+                + QROS_QUEUE_WORKER_LAST_SUCCESSFUL_CYCLE_AT,
                 flush=True
             )
 
         except Exception as exc:
 
+            QROS_QUEUE_WORKER_LAST_ERROR_AT = (
+                qros_queue_now_iso()
+            )
+
+            QROS_QUEUE_WORKER_LAST_ERROR = str(exc)
+
             print(
                 "QROS_QUEUE_WORKER_ERROR",
                 "ERROR=" + str(exc),
+                "ERROR_AT="
+                + QROS_QUEUE_WORKER_LAST_ERROR_AT,
                 flush=True
             )
 
