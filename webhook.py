@@ -111,6 +111,47 @@ QROS_QUEUE_WORKER_MAX_EVENTS_PER_CYCLE = int(
     )
 )
 
+
+# ============================================================
+# QROS STEP 45E.11-G
+# PRODUCTION GUARDRAILS — CONFIGURABLE HEALTH THRESHOLDS
+#
+# Defaults preserve the currently certified behavior.
+# Railway Variables can override them without code changes.
+# ============================================================
+
+QROS_HEALTH_PENDING_DEGRADED = int(
+    os.getenv("QROS_HEALTH_PENDING_DEGRADED", "5")
+)
+
+QROS_HEALTH_PENDING_CRITICAL = int(
+    os.getenv("QROS_HEALTH_PENDING_CRITICAL", "20")
+)
+
+QROS_HEALTH_RETRY_CRITICAL = int(
+    os.getenv("QROS_HEALTH_RETRY_CRITICAL", "10")
+)
+
+QROS_HEALTH_DEAD_LETTER_DEGRADED = int(
+    os.getenv("QROS_HEALTH_DEAD_LETTER_DEGRADED", "10")
+)
+
+QROS_HEALTH_DEAD_LETTER_HIGH = int(
+    os.getenv("QROS_HEALTH_DEAD_LETTER_HIGH", "20")
+)
+
+QROS_HEALTH_PENDING_STALE_SECONDS = int(
+    os.getenv("QROS_HEALTH_PENDING_STALE_SECONDS", "60")
+)
+
+QROS_HEALTH_PENDING_STUCK_SECONDS = int(
+    os.getenv("QROS_HEALTH_PENDING_STUCK_SECONDS", "300")
+)
+
+QROS_HEALTH_WORKER_HEARTBEAT_STALE_SECONDS = int(
+    os.getenv("QROS_HEALTH_WORKER_HEARTBEAT_STALE_SECONDS", "30")
+)
+
 # ============================================================
 # QROS STEP 45E.4-G
 # DURABLE RETRY — BACKOFF SETTINGS
@@ -1824,29 +1865,29 @@ def qros_queue_health_classification():
             "EXPIRED_PROCESSING_LEASE"
         )
 
-    if pending >= 20:
+    if pending >= QROS_HEALTH_PENDING_CRITICAL:
         reasons.append(
             "HIGH_PENDING_BACKLOG"
         )
 
-    if retry_waiting >= 10:
+    if retry_waiting >= QROS_HEALTH_RETRY_CRITICAL:
         reasons.append(
             "HIGH_RETRY_BACKLOG"
         )
 
-    if dead_letter >= 20:
+    if dead_letter >= QROS_HEALTH_DEAD_LETTER_HIGH:
         reasons.append(
             "HIGH_DEAD_LETTER_COUNT"
         )
 
-    elif dead_letter >= 10:
+    elif dead_letter >= QROS_HEALTH_DEAD_LETTER_DEGRADED:
         reasons.append(
             "ELEVATED_DEAD_LETTER_COUNT"
         )
 
     if (
         oldest_pending_age_seconds is not None
-        and oldest_pending_age_seconds >= 300
+        and oldest_pending_age_seconds >= QROS_HEALTH_PENDING_STUCK_SECONDS
     ):
         reasons.append(
             "STUCK_PENDING_EVENT"
@@ -1854,7 +1895,7 @@ def qros_queue_health_classification():
 
     elif (
         oldest_pending_age_seconds is not None
-        and oldest_pending_age_seconds >= 60
+        and oldest_pending_age_seconds >= QROS_HEALTH_PENDING_STALE_SECONDS
     ):
         reasons.append(
             "STALE_PENDING_EVENT"
@@ -1873,7 +1914,7 @@ def qros_queue_health_classification():
         elif (
             worker_last_successful_cycle_age_seconds is None
             and worker_started_age_seconds is not None
-            and worker_started_age_seconds >= 30
+            and worker_started_age_seconds >= QROS_HEALTH_WORKER_HEARTBEAT_STALE_SECONDS
         ):
             reasons.append(
                 "WORKER_HEARTBEAT_MISSING"
@@ -1882,7 +1923,7 @@ def qros_queue_health_classification():
 
         elif (
             worker_last_successful_cycle_age_seconds is not None
-            and worker_last_successful_cycle_age_seconds >= 30
+            and worker_last_successful_cycle_age_seconds >= QROS_HEALTH_WORKER_HEARTBEAT_STALE_SECONDS
         ):
             reasons.append(
                 "WORKER_HEARTBEAT_STALE"
@@ -1891,24 +1932,24 @@ def qros_queue_health_classification():
 
     if (
         expired_lease > 0
-        or pending >= 20
-        or retry_waiting >= 10
+        or pending >= QROS_HEALTH_PENDING_CRITICAL
+        or retry_waiting >= QROS_HEALTH_RETRY_CRITICAL
         or worker_liveness_critical
         or (
             oldest_pending_age_seconds is not None
-            and oldest_pending_age_seconds >= 300
+            and oldest_pending_age_seconds >= QROS_HEALTH_PENDING_STUCK_SECONDS
         )
     ):
         health = "CRITICAL"
 
     elif (
-        pending >= 5
+        pending >= QROS_HEALTH_PENDING_DEGRADED
         or retry_waiting > 0
         or processing > 5
-        or dead_letter >= 10
+        or dead_letter >= QROS_HEALTH_DEAD_LETTER_DEGRADED
         or (
             oldest_pending_age_seconds is not None
-            and oldest_pending_age_seconds >= 60
+            and oldest_pending_age_seconds >= QROS_HEALTH_PENDING_STALE_SECONDS
         )
     ):
         health = "DEGRADED"
