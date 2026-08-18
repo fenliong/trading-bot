@@ -320,11 +320,6 @@ def qros_validate_startup_config():
             "WORKER_HEARTBEAT_STALE_TOO_LOW"
         )
 
-    # ========================================================
-    # QROS STEP 45E.12-C
-    # PRODUCTION RUNTIME SAFETY — CROSS-MODE STARTUP GUARDS
-    # ========================================================
-
     if (
         QROS_WEBHOOK_AUTH_MODE == "ENFORCE"
         and not QROS_WEBHOOK_INGRESS_SECRET
@@ -342,6 +337,7 @@ def qros_validate_startup_config():
         )
 
     if errors:
+
         print(
             "QROS_STARTUP_CONFIG_INVALID",
             "ERRORS=" + str(errors),
@@ -371,6 +367,85 @@ def qros_validate_startup_config():
 
 
 qros_validate_startup_config()
+
+
+# ============================================================
+# QROS STEP 45E.12-D
+# PRODUCTION RUNTIME SAFETY — RUNTIME PREREQUISITES
+#
+# FAIL FAST
+# - Validates prerequisites required by the live delivery path.
+# - Does not modify queue state.
+# - Does not call Google.
+# - Does not expose secret values in logs.
+# ============================================================
+
+def qros_validate_runtime_prerequisites():
+
+    errors = []
+
+    if not GOOGLE_SCRIPT_SECRET:
+        errors.append(
+            "GOOGLE_SCRIPT_SECRET_REQUIRED"
+        )
+
+    if (
+        not GOOGLE_SCRIPT_URL
+        or not GOOGLE_SCRIPT_URL.startswith(
+            "https://"
+        )
+    ):
+        errors.append(
+            "GOOGLE_SCRIPT_URL_MUST_BE_HTTPS"
+        )
+
+    if not QROS_QUEUE_DB_PATH:
+        errors.append(
+            "QUEUE_DB_PATH_REQUIRED"
+        )
+
+    elif not os.path.isabs(
+        QROS_QUEUE_DB_PATH
+    ):
+        errors.append(
+            "QUEUE_DB_PATH_MUST_BE_ABSOLUTE"
+        )
+
+    if QROS_WEBHOOK_MAX_BODY_BYTES <= 0:
+        errors.append(
+            "WEBHOOK_MAX_BODY_BYTES_MUST_BE_POSITIVE"
+        )
+
+    if errors:
+
+        print(
+            "QROS_RUNTIME_PREREQUISITES_INVALID",
+            "ERRORS=" + str(errors),
+            flush=True
+        )
+
+        raise RuntimeError(
+            "QROS_RUNTIME_PREREQUISITES_INVALID:"
+            + ",".join(errors)
+        )
+
+    print(
+        "QROS_RUNTIME_PREREQUISITES_VALID",
+        "GOOGLE_SECRET_CONFIGURED=True",
+        "GOOGLE_URL_HTTPS=True",
+        "QUEUE_DB_PATH=" + QROS_QUEUE_DB_PATH,
+        "WEBHOOK_MAX_BODY_BYTES="
+        + str(QROS_WEBHOOK_MAX_BODY_BYTES),
+        flush=True
+    )
+
+    return {
+        "valid": True,
+        "errors": []
+    }
+
+
+qros_validate_runtime_prerequisites()
 
 QROS_SUPPORTED_VERSION = "QROS_V49.0.1"
 
