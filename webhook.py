@@ -1593,6 +1593,101 @@ def qros_queue_health_snapshot():
     finally:
         connection.close()
 
+# ============================================================
+# QROS STEP 45E.11-A
+# PRODUCTION GUARDRAILS — QUEUE HEALTH CLASSIFICATION
+#
+# READ ONLY
+# - Classifies queue health from existing snapshot metrics.
+# - Does not modify queue state.
+# - Does not call Google.
+# ============================================================
+
+def qros_queue_health_classification():
+
+    snapshot = qros_queue_health_snapshot()
+
+    pending = int(
+        snapshot.get(
+            "pending",
+            0
+        )
+    )
+
+    processing = int(
+        snapshot.get(
+            "processing",
+            0
+        )
+    )
+
+    dead_letter = int(
+        snapshot.get(
+            "dead_letter",
+            0
+        )
+    )
+
+    retry_waiting = int(
+        snapshot.get(
+            "retry_waiting",
+            0
+        )
+    )
+
+    expired_lease = int(
+        snapshot.get(
+            "expired_lease",
+            0
+        )
+    )
+
+    reasons = []
+
+    if expired_lease > 0:
+        reasons.append(
+            "EXPIRED_PROCESSING_LEASE"
+        )
+
+    if pending >= 20:
+        reasons.append(
+            "HIGH_PENDING_BACKLOG"
+        )
+
+    if retry_waiting >= 10:
+        reasons.append(
+            "HIGH_RETRY_BACKLOG"
+        )
+
+    if dead_letter >= 20:
+        reasons.append(
+            "HIGH_DEAD_LETTER_COUNT"
+        )
+
+    if (
+        expired_lease > 0
+        or pending >= 20
+        or retry_waiting >= 10
+    ):
+        health = "CRITICAL"
+
+    elif (
+        pending >= 5
+        or retry_waiting > 0
+        or processing > 5
+        or dead_letter >= 10
+    ):
+        health = "DEGRADED"
+
+    else:
+        health = "HEALTHY"
+
+    return {
+        "health": health,
+        "reasons": reasons,
+        "queue": snapshot
+    }
+    
 
 # ============================================================
 # QROS STEP 45E.8-B
