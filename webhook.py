@@ -1962,6 +1962,21 @@ def qros_queue_health_snapshot():
             )
         ).fetchone()[0]
 
+        valid_processing_lease = connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM qros_delivery_queue
+            WHERE status = 'PROCESSING'
+              AND claimed_at IS NOT NULL
+              AND lease_until IS NOT NULL
+              AND lease_until > ?
+              AND worker_id IS NOT NULL
+              AND TRIM(worker_id) <> ''
+            """,
+            (
+                now,
+            )
+        ).fetchone()[0]        
         oldest_pending_created_at = connection.execute(
             """
             SELECT MIN(created_at)
@@ -2105,6 +2120,8 @@ def qros_queue_health_snapshot():
             "ready_now": ready_now,
             "retry_waiting": retry_waiting,
             "expired_lease": expired_lease,
+            "valid_processing_lease": 
+                valid_processing_lease,            
             "oldest_pending_created_at":
                 oldest_pending_created_at,
             "oldest_pending_age_seconds":
@@ -2181,6 +2198,13 @@ def qros_queue_health_classification():
         )
     )
 
+    valid_processing_lease = int(
+        snapshot.get(
+            "valid_processing_lease",
+            0
+        )
+    ) 
+    
     oldest_pending_age_seconds = (
         snapshot.get(
             "oldest_pending_age_seconds"
@@ -2269,6 +2293,12 @@ def qros_queue_health_classification():
 
     worker_liveness_critical = False
 
+    worker_has_valid_inflight = (
+        processing > 0
+        and valid_processing_lease == processing
+        and expired_lease == 0
+    )
+    
     if worker_enabled:
 
         if not worker_thread_alive:
@@ -2278,7 +2308,8 @@ def qros_queue_health_classification():
             worker_liveness_critical = True
 
         elif (
-            worker_last_successful_cycle_age_seconds is None
+            not worker_has_valid_inflight
+            and worker_last_successful_cycle_age_seconds is None
             and worker_started_age_seconds is not None
             and worker_started_age_seconds >= QROS_HEALTH_WORKER_HEARTBEAT_STALE_SECONDS
         ):
@@ -2288,7 +2319,8 @@ def qros_queue_health_classification():
             worker_liveness_critical = True
 
         elif (
-            worker_last_successful_cycle_age_seconds is not None
+            not worker_has_valid_inflight
+            and worker_last_successful_cycle_age_seconds is not None
             and worker_last_successful_cycle_age_seconds >= QROS_HEALTH_WORKER_HEARTBEAT_STALE_SECONDS
         ):
             reasons.append(
