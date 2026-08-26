@@ -3727,21 +3727,20 @@ def webhook():
                 validation["warnings"]
         }), 422
 
-    # ========================================================
-    # EXISTING DELIVERY PATH
+        # ========================================================
+    # QROS DURABLE QUEUE — PERSISTENCE GATE
     #
-    # Preserved unchanged for STEP 45B.
+    # LEGACY:
+    # - Queue remains shadow/best-effort.
+    # - Queue failure must not break legacy delivery.
+    #
+    # DURABLE_QUEUE:
+    # - HTTP success is forbidden unless the event is
+    #   confirmed persisted or already persisted.
     # ========================================================
 
-    # ========================================================
-    # QROS STEP 45E.2C
-    # DURABLE QUEUE — SHADOW ENQUEUE
-    #
-    # IMPORTANT:
-    # - Persist event before legacy background delivery.
-    # - Existing STEP45D Google delivery remains unchanged.
-    # - Queue does NOT deliver anything yet.
-    # ========================================================
+    queue_result = None
+    queue_error = None
 
     try:
 
@@ -3750,7 +3749,7 @@ def webhook():
         )
 
         print(
-            "QROS_STEP45E2C_SHADOW_ENQUEUE",
+            "QROS_QUEUE_ENQUEUE",
             "TRADE_ID=" + str(
                 data.get("trade_id", "")
             ),
@@ -3786,23 +3785,78 @@ def webhook():
             flush=True
         )
 
-    except Exception as queue_error:
+    except Exception as exc:
 
-        # STEP45E.2C remains SHADOW.
-        # A queue failure must NOT break the certified
-        # STEP45D delivery path during this phase.
+        queue_error = exc
 
         print(
-            "QROS_STEP45E2C_SHADOW_ERROR",
+            "QROS_QUEUE_ENQUEUE_ERROR",
             "TRADE_ID=" + str(
                 data.get("trade_id", "")
             ),
-            "ERROR=" + str(
-                queue_error
-            ),
+            "ERROR=" + str(exc),
             flush=True
         )
-        
+
+    # ========================================================
+    # DURABLE QUEUE FAIL-CLOSED GATE
+    # ========================================================
+
+    if QROS_DELIVERY_PATH_MODE == "DURABLE_QUEUE":
+
+        if queue_error is not None:
+
+            return jsonify({
+                "status": "error",
+                "guard": "QROS_DURABLE_QUEUE_PERSISTENCE",
+                "reason": "QUEUE_PERSISTENCE_FAILED"
+            }), 503
+
+        if not isinstance(queue_result, dict):
+
+            return jsonify({
+                "status": "error",
+                "guard": "QROS_DURABLE_QUEUE_PERSISTENCE",
+                "reason": "QUEUE_RESULT_INVALID"
+            }), 503
+
+        queue_enqueued = bool(
+            queue_result.get(
+                "enqueued",
+                False
+            )
+        )
+
+        queue_duplicate = bool(
+            queue_result.get(
+                "duplicate",
+                False
+            )
+        )
+
+        queue_status = str(
+            queue_result.get(
+                "status",
+                ""
+            )
+        ).strip().upper()
+
+        if queue_status == "INVALID_DELIVERY_IDENTITY":
+
+            return jsonify({
+                "status": "rejected",
+                "guard": "QROS_DURABLE_QUEUE_PERSISTENCE",
+                "reason": "INVALID_DELIVERY_IDENTITY"
+            }), 422
+
+        if not queue_enqueued and not queue_duplicate:
+
+            return jsonify({
+                "status": "error",
+                "guard": "QROS_DURABLE_QUEUE_PERSISTENCE",
+                "reason": "EVENT_NOT_DURABLY_PERSISTED",
+                "queue_status": queue_status
+            }), 503        
     # ========================================================
     # QROS STEP 45E.10-B
     # CONTROLLED CUTOVER — DELIVERY PATH ROUTING
