@@ -1414,6 +1414,69 @@ def qros_queue_claim_one_ready(
     finally:
         connection.close()
 
+def qros_queue_renew_lease(
+    delivery_event_key,
+    worker_id,
+    claimed_at,
+    lease_seconds=360
+):
+    worker_id = str(worker_id).strip()
+    claimed_at = str(claimed_at).strip()
+
+    if not worker_id or not claimed_at:
+        return False
+
+    connection = sqlite3.connect(
+        QROS_QUEUE_DB_PATH,
+        timeout=30
+    )
+
+    try:
+        connection.execute(
+            "PRAGMA busy_timeout = 30000"
+        )
+
+        now = qros_queue_now_iso()
+
+        lease_until = (
+            datetime.utcnow()
+            + timedelta(
+                seconds=int(lease_seconds)
+            )
+        ).isoformat(
+            timespec="milliseconds"
+        ) + "Z"
+
+        cursor = connection.execute(
+            """
+            UPDATE qros_delivery_queue
+            SET
+                updated_at = ?,
+                lease_until = ?
+            WHERE delivery_event_key = ?
+              AND status = 'PROCESSING'
+              AND worker_id = ?
+              AND claimed_at = ?
+              AND lease_until IS NOT NULL
+              AND lease_until > ?
+            """,
+            (
+                now,
+                lease_until,
+                delivery_event_key,
+                worker_id,
+                claimed_at,
+                now
+            )
+        )
+
+        connection.commit()
+
+        return cursor.rowcount == 1
+
+    finally:
+        connection.close()
+        
 # ============================================================
 # QROS STEP 45E.7-D
 # CONCURRENCY SAFETY — EXPIRED LEASE RECOVERY
@@ -3256,7 +3319,14 @@ def qros_queue_process_one_pending():
 
     delivery_result = (
         send_to_google_with_retry(
-            google_payload
+            google_payload,
+            before_attempt=lambda:
+                qros_queue_renew_lease(
+                    delivery_event_key,
+                    row["worker_id"],
+                    row["claimed_at"],
+                    lease_seconds=360
+                )
         )
     )
 
@@ -4233,13 +4303,54 @@ def qros_health_endpoint():
         "queue": classification["queue"]
     }), 200
 
-def send_to_google_with_retry(google_payload, max_attempts=3):
+def send_to_google_with_retry(
+    google_payload,
+    max_attempts=3,
+    before_attempt=None
+):
 
     retry_delays = [2, 5]
     last_error = None
 
     for attempt in range(1, max_attempts + 1):
 
+        if before_attempt is not None:
+
+            try:
+                before_attempt_ok = bool(
+                    before_attempt()
+                )
+            except Exception as exc:
+                print(
+                    "QROS_DELIVERY BEFORE_ATTEMPT_ERROR "
+                    f"ATTEMPT={attempt} "
+                    f"ERROR={exc}",
+                    flush=True
+                )
+
+                return {
+                    "delivered": False,
+                    "attempts": attempt - 1,
+                    "status":
+                        "BEFORE_ATTEMPT_GUARD_ERROR",
+                    "error": str(exc)
+                }
+
+            if not before_attempt_ok:
+                print(
+                    "QROS_DELIVERY BEFORE_ATTEMPT_REJECTED "
+                    f"ATTEMPT={attempt}",
+                    flush=True
+                )
+
+                return {
+                    "delivered": False,
+                    "attempts": attempt - 1,
+                    "status":
+                        "BEFORE_ATTEMPT_GUARD_REJECTED",
+                    "error":
+                        "BEFORE_ATTEMPT_GUARD_REJECTED"
+                }        
         try:
 
             print(
