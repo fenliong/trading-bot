@@ -1542,10 +1542,17 @@ def qros_queue_mark_attempt(
     finally:
         connection.close()
 
-
 def qros_queue_mark_delivered(
-    delivery_event_key
+    delivery_event_key,
+    worker_id,
+    claimed_at
 ):
+    worker_id = str(worker_id).strip()
+    claimed_at = str(claimed_at).strip()
+
+    if not worker_id or not claimed_at:
+        return False
+
     connection = sqlite3.connect(
         QROS_QUEUE_DB_PATH,
         timeout=30
@@ -1558,7 +1565,7 @@ def qros_queue_mark_delivered(
 
         now = qros_queue_now_iso()
 
-        connection.execute(
+        cursor = connection.execute(
             """
             UPDATE qros_delivery_queue
             SET
@@ -1571,15 +1578,25 @@ def qros_queue_mark_delivered(
                 lease_until = NULL,
                 worker_id = NULL
             WHERE delivery_event_key = ?
+              AND status = 'PROCESSING'
+              AND worker_id = ?
+              AND claimed_at = ?
+              AND lease_until IS NOT NULL
+              AND lease_until > ?
             """,
             (
                 now,
                 now,
-                delivery_event_key
+                delivery_event_key,
+                worker_id,
+                claimed_at,
+                now
             )
         )
 
         connection.commit()
+
+        return cursor.rowcount == 1
 
     finally:
         connection.close()
@@ -3117,9 +3134,23 @@ def qros_queue_process_one_pending():
         "delivered"
     ) is True:
 
-        qros_queue_mark_delivered(
-            delivery_event_key
+        marked_delivered = qros_queue_mark_delivered(
+            delivery_event_key,
+            row["worker_id"],
+            row["claimed_at"]
         )
+
+        if not marked_delivered:
+
+            return {
+                "processed": True,
+                "delivery_event_key":
+                    delivery_event_key,
+                "status":
+                    "LEASE_OWNERSHIP_LOST_AFTER_DELIVERY",
+                "delivery_result":
+                    delivery_result
+            }
 
         return {
             "processed": True,
