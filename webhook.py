@@ -1507,8 +1507,16 @@ def qros_queue_recover_expired_leases(limit=100):
 
 def qros_queue_mark_attempt(
     delivery_event_key,
-    error_message=None
+    error_message,
+    worker_id,
+    claimed_at
 ):
+    worker_id = str(worker_id).strip()
+    claimed_at = str(claimed_at).strip()
+
+    if not worker_id or not claimed_at:
+        return False
+
     connection = sqlite3.connect(
         QROS_QUEUE_DB_PATH,
         timeout=30
@@ -1521,7 +1529,7 @@ def qros_queue_mark_attempt(
 
         now = qros_queue_now_iso()
 
-        connection.execute(
+        cursor = connection.execute(
             """
             UPDATE qros_delivery_queue
             SET
@@ -1529,15 +1537,25 @@ def qros_queue_mark_attempt(
                 updated_at = ?,
                 last_error = ?
             WHERE delivery_event_key = ?
+              AND status = 'PROCESSING'
+              AND worker_id = ?
+              AND claimed_at = ?
+              AND lease_until IS NOT NULL
+              AND lease_until > ?
             """,
             (
                 now,
                 error_message,
-                delivery_event_key
+                delivery_event_key,
+                worker_id,
+                claimed_at,
+                now
             )
         )
 
         connection.commit()
+
+        return cursor.rowcount == 1
 
     finally:
         connection.close()
@@ -1604,8 +1622,16 @@ def qros_queue_mark_delivered(
 
 def qros_queue_mark_failed(
     delivery_event_key,
-    error_message
+    error_message,
+    worker_id,
+    claimed_at
 ):
+    worker_id = str(worker_id).strip()
+    claimed_at = str(claimed_at).strip()
+
+    if not worker_id or not claimed_at:
+        return False
+
     connection = sqlite3.connect(
         QROS_QUEUE_DB_PATH,
         timeout=30
@@ -1618,7 +1644,7 @@ def qros_queue_mark_failed(
 
         now = qros_queue_now_iso()
 
-        connection.execute(
+        cursor = connection.execute(
             """
             UPDATE qros_delivery_queue
             SET
@@ -1628,17 +1654,27 @@ def qros_queue_mark_failed(
                 next_retry_at = NULL,
                 claimed_at = NULL,
                 lease_until = NULL,
-                worker_id = NULL           
+                worker_id = NULL
             WHERE delivery_event_key = ?
+              AND status = 'PROCESSING'
+              AND worker_id = ?
+              AND claimed_at = ?
+              AND lease_until IS NOT NULL
+              AND lease_until > ?
             """,
             (
                 now,
                 str(error_message),
-                delivery_event_key
+                delivery_event_key,
+                worker_id,
+                claimed_at,
+                now
             )
         )
 
         connection.commit()
+
+        return cursor.rowcount == 1
 
     finally:
         connection.close()
@@ -1657,8 +1693,15 @@ def qros_queue_mark_failed(
 
 def qros_queue_mark_dead_letter(
     delivery_event_key,
-    error_message
+    error_message,
+    worker_id,
+    claimed_at
 ):
+    worker_id = str(worker_id).strip()
+    claimed_at = str(claimed_at).strip()
+
+    if not worker_id or not claimed_at:
+        return False
 
     connection = sqlite3.connect(
         QROS_QUEUE_DB_PATH,
@@ -1672,7 +1715,7 @@ def qros_queue_mark_dead_letter(
 
         now = qros_queue_now_iso()
 
-        connection.execute(
+        cursor = connection.execute(
             """
             UPDATE qros_delivery_queue
             SET
@@ -1682,17 +1725,27 @@ def qros_queue_mark_dead_letter(
                 next_retry_at = NULL,
                 claimed_at = NULL,
                 lease_until = NULL,
-                worker_id = NULL        
+                worker_id = NULL
             WHERE delivery_event_key = ?
+              AND status = 'PROCESSING'
+              AND worker_id = ?
+              AND claimed_at = ?
+              AND lease_until IS NOT NULL
+              AND lease_until > ?
             """,
             (
                 now,
                 str(error_message),
-                delivery_event_key
+                delivery_event_key,
+                worker_id,
+                claimed_at,
+                now
             )
         )
 
         connection.commit()
+
+        return cursor.rowcount == 1
 
     finally:
         connection.close()
@@ -3015,8 +3068,15 @@ def qros_queue_diagnostic_snapshot(limit=100):
 def qros_queue_schedule_retry(
     delivery_event_key,
     next_retry_at,
-    error_message
+    error_message,
+    worker_id,
+    claimed_at
 ):
+    worker_id = str(worker_id).strip()
+    claimed_at = str(claimed_at).strip()
+
+    if not worker_id or not claimed_at:
+        return False
 
     connection = sqlite3.connect(
         QROS_QUEUE_DB_PATH,
@@ -3030,25 +3090,38 @@ def qros_queue_schedule_retry(
 
         now = qros_queue_now_iso()
 
-        connection.execute(
+        cursor = connection.execute(
             """
             UPDATE qros_delivery_queue
             SET
                 status = 'PENDING',
                 updated_at = ?,
                 next_retry_at = ?,
-                last_error = ?
+                last_error = ?,
+                claimed_at = NULL,
+                lease_until = NULL,
+                worker_id = NULL
             WHERE delivery_event_key = ?
+              AND status = 'PROCESSING'
+              AND worker_id = ?
+              AND claimed_at = ?
+              AND lease_until IS NOT NULL
+              AND lease_until > ?
             """,
             (
                 now,
                 str(next_retry_at),
                 str(error_message),
-                delivery_event_key
+                delivery_event_key,
+                worker_id,
+                claimed_at,
+                now
             )
         )
 
         connection.commit()
+
+        return cursor.rowcount == 1
 
     finally:
         connection.close()
@@ -3101,10 +3174,23 @@ def qros_queue_process_one_pending():
             row["payload_json"]
         )
     except Exception as exc:
-        qros_queue_mark_failed(
+        failed_marked = qros_queue_mark_failed(
             delivery_event_key,
-            "INVALID_PAYLOAD_JSON:" + str(exc)
+            "INVALID_PAYLOAD_JSON:" + str(exc),
+            row["worker_id"],
+            row["claimed_at"]
         )
+
+        if not failed_marked:
+
+            return {
+                "processed": True,
+                "delivery_event_key":
+                    delivery_event_key,
+                "status":
+                    "LEASE_OWNERSHIP_LOST_BEFORE_FAILED",
+                "error": str(exc)
+            }
 
         return {
             "processed": True,
@@ -3119,10 +3205,22 @@ def qros_queue_process_one_pending():
         "webhook_secret"
     ] = GOOGLE_SCRIPT_SECRET
 
-    qros_queue_mark_attempt(
+    attempt_marked = qros_queue_mark_attempt(
         delivery_event_key,
-        None
+        None,
+        row["worker_id"],
+        row["claimed_at"]
     )
+
+    if not attempt_marked:
+
+        return {
+            "processed": True,
+            "delivery_event_key":
+                delivery_event_key,
+            "status":
+                "LEASE_OWNERSHIP_LOST_BEFORE_ATTEMPT"
+        }
 
     delivery_result = (
         send_to_google_with_retry(
@@ -3183,11 +3281,25 @@ def qros_queue_process_one_pending():
 
     if next_retry_at is not None:
 
-        qros_queue_schedule_retry(
+        retry_scheduled = qros_queue_schedule_retry(
             delivery_event_key,
             next_retry_at,
-            error_message
+            error_message,
+            row["worker_id"],
+            row["claimed_at"]
         )
+
+        if not retry_scheduled:
+
+            return {
+                "processed": True,
+                "delivery_event_key":
+                    delivery_event_key,
+                "status":
+                    "LEASE_OWNERSHIP_LOST_BEFORE_RETRY",
+                "delivery_result":
+                    delivery_result
+            }
 
         return {
             "processed": True,
@@ -3202,10 +3314,24 @@ def qros_queue_process_one_pending():
                 delivery_result
         }
 
-    qros_queue_mark_dead_letter(
+    dead_letter_marked = qros_queue_mark_dead_letter(
         delivery_event_key,
-        error_message
+        error_message,
+        row["worker_id"],
+        row["claimed_at"]
     )
+
+    if not dead_letter_marked:
+
+        return {
+            "processed": True,
+            "delivery_event_key":
+                delivery_event_key,
+            "status":
+                "LEASE_OWNERSHIP_LOST_BEFORE_DEAD_LETTER",
+            "delivery_result":
+                delivery_result
+        }
 
     return {
         "processed": True,
