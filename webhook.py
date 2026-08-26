@@ -1279,7 +1279,7 @@ def qros_queue_list_ready(limit=100):
 
 def qros_queue_claim_one_ready(
     worker_id,
-    lease_seconds=120
+    lease_seconds=360
 ):
 
     worker_id = str(worker_id).strip()
@@ -3061,7 +3061,7 @@ def qros_queue_process_one_pending():
 
     claim_result = qros_queue_claim_one_ready(
         QROS_QUEUE_WORKER_ID,
-        lease_seconds=120
+        lease_seconds=360
     )
 
     if claim_result.get("claimed") is not True:
