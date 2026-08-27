@@ -3986,6 +3986,18 @@ def webhook():
                 validation["warnings"]
         }), 422
 
+        # ========================================================
+    # QROS STEP 45E.9-E
+    # INGRESS SECRET STRIP BEFORE DURABLE PERSISTENCE
+    #
+    # Authentication and payload validation are complete.
+    # The TradingView ingress secret must never be persisted
+    # in SQLite or forwarded downstream.
+    # ========================================================
+
+    data.pop("qros_ingress_secret", None)
+
+    
     # ========================================================
     # QROS DURABLE QUEUE — PERSISTENCE GATE
     #
