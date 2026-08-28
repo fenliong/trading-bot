@@ -605,6 +605,71 @@ def validate_qros_v49_payload(data):
         warnings.append(
             "TRADE_ID_NON_STANDARD_PREFIX"
         )
+    else:
+        # ----------------------------------------------------
+        # TRADE ID SEMANTIC IDENTITY
+        #
+        # Expected standard format:
+        # QTR1_<SYMBOL>_<TIMEFRAME>_<TIMESTAMP_MS>_<DIRECTION>
+        #
+        # Parse from the right so SYMBOL may itself contain "_".
+        # ----------------------------------------------------
+        trade_id_body = trade_id[len("QTR1_"):]
+        trade_id_parts = trade_id_body.rsplit("_", 3)
+
+        if len(trade_id_parts) != 4:
+            errors.append(
+                "TRADE_ID_FORMAT_INVALID"
+            )
+        else:
+            (
+                trade_id_symbol,
+                trade_id_timeframe,
+                trade_id_timestamp,
+                trade_id_direction
+            ) = trade_id_parts
+
+            if (
+                not trade_id_symbol
+                or not trade_id_timeframe
+                or not trade_id_timestamp.isdigit()
+                or trade_id_direction
+                not in QROS_ALLOWED_DIRECTIONS
+            ):
+                errors.append(
+                    "TRADE_ID_FORMAT_INVALID"
+                )
+            else:
+                payload_symbol = data.get("symbol")
+                payload_timeframe = data.get("timeframe")
+                payload_direction = data.get("direction")
+
+                if (
+                    _qros_non_empty_string(payload_symbol)
+                    and payload_symbol != trade_id_symbol
+                ):
+                    errors.append(
+                        "TRADE_ID_SYMBOL_MISMATCH"
+                    )
+
+                if (
+                    _qros_non_empty_string(payload_timeframe)
+                    and payload_timeframe
+                    != trade_id_timeframe
+                ):
+                    errors.append(
+                        "TRADE_ID_TIMEFRAME_MISMATCH"
+                    )
+
+                if (
+                    payload_direction
+                    in QROS_ALLOWED_DIRECTIONS
+                    and payload_direction
+                    != trade_id_direction
+                ):
+                    errors.append(
+                        "TRADE_ID_DIRECTION_MISMATCH"
+                    )
 
     version = data.get("version")
 
@@ -1087,10 +1152,124 @@ def qros_queue_enqueue(data):
         timeout=30
     )
 
+    connection.row_factory = sqlite3.Row
+
     try:
         connection.execute(
             "PRAGMA busy_timeout = 30000"
         )
+
+        # ====================================================
+        # QROS TRADE LIFECYCLE — PRE-PERSISTENCE GATE
+        #
+        # Lifecycle check and INSERT are serialized so two
+        # concurrent writers cannot bypass the lifecycle rules.
+        # ====================================================
+
+        connection.execute(
+            "BEGIN IMMEDIATE"
+        )
+
+        # Exact replay remains idempotent, including replay of
+        # the original OPEN after the trade has already closed.
+        existing_exact = connection.execute(
+            """
+            SELECT
+                id,
+                status
+            FROM qros_delivery_queue
+            WHERE delivery_event_key = ?
+            """,
+            (
+                delivery_event_key,
+            )
+        ).fetchone()
+
+        if existing_exact is not None:
+            connection.rollback()
+
+            return {
+                "enqueued": False,
+                "duplicate": True,
+                "status": existing_exact["status"],
+                "delivery_event_key": delivery_event_key,
+                "row_id": existing_exact["id"]
+            }
+
+        existing_rows = connection.execute(
+            """
+            SELECT
+                id,
+                event_phase,
+                status
+            FROM qros_delivery_queue
+            WHERE trade_id = ?
+            ORDER BY id ASC
+            """,
+            (
+                trade_id,
+            )
+        ).fetchall()
+
+        existing_phases = {
+            str(
+                row["event_phase"] or ""
+            ).strip().upper()
+            for row in existing_rows
+        }
+
+        terminal_phases = {
+            "WIN",
+            "LOSS",
+            "BE"
+        }
+
+        existing_terminal_phases = (
+            existing_phases
+            & terminal_phases
+        )
+
+        # WIN / LOSS / BE require an existing OPEN.
+        if event_phase in terminal_phases:
+            if "OPEN" not in existing_phases:
+                connection.rollback()
+
+                return {
+                    "enqueued": False,
+                    "duplicate": False,
+                    "status": "LIFECYCLE_CLOSE_WITHOUT_OPEN",
+                    "delivery_event_key": delivery_event_key
+                }
+
+            # A trade cannot receive a different final outcome.
+            if (
+                existing_terminal_phases
+                - {event_phase}
+            ):
+                connection.rollback()
+
+                return {
+                    "enqueued": False,
+                    "duplicate": False,
+                    "status": (
+                        "LIFECYCLE_CONTRADICTORY_FINAL_OUTCOME"
+                    ),
+                    "delivery_event_key": delivery_event_key
+                }
+
+        # A genuinely new OPEN after a terminal event is invalid.
+        elif (
+            event_phase == "OPEN"
+            and existing_terminal_phases
+        ):
+            connection.rollback()
+
+            return {
+                "enqueued": False,
+                "duplicate": False,
+                "status": "LIFECYCLE_OPEN_AFTER_TERMINAL",
+                "delivery_event_key": delivery_event_key
+            }
 
         try:
             cursor = connection.execute(
@@ -1130,9 +1309,20 @@ def qros_queue_enqueue(data):
             }
 
         except sqlite3.IntegrityError:
-            existing = qros_queue_get_event(
-                delivery_event_key
-            )
+            connection.rollback()
+
+            existing = connection.execute(
+                """
+                SELECT
+                    id,
+                    status
+                FROM qros_delivery_queue
+                WHERE delivery_event_key = ?
+                """,
+                (
+                    delivery_event_key,
+                )
+            ).fetchone()
 
             return {
                 "enqueued": False,
@@ -1152,7 +1342,6 @@ def qros_queue_enqueue(data):
 
     finally:
         connection.close()
-
 
 def qros_queue_list_pending(limit=100):
     connection = sqlite3.connect(
@@ -4118,6 +4307,19 @@ def webhook():
                 "status": "rejected",
                 "guard": "QROS_DURABLE_QUEUE_PERSISTENCE",
                 "reason": "INVALID_DELIVERY_IDENTITY"
+            }), 422
+
+        lifecycle_rejections = {
+            "LIFECYCLE_CLOSE_WITHOUT_OPEN",
+            "LIFECYCLE_CONTRADICTORY_FINAL_OUTCOME",
+            "LIFECYCLE_OPEN_AFTER_TERMINAL"
+        }
+
+        if queue_status in lifecycle_rejections:
+            return jsonify({
+                "status": "rejected",
+                "guard": "QROS_TRADE_LIFECYCLE",
+                "reason": queue_status
             }), 422
 
         if not queue_enqueued and not queue_duplicate:
